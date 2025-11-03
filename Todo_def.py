@@ -34,7 +34,7 @@ def url_mention(url):#반환값은 딕셔너리 형태로 title, favicon_url, �
             favicon_url = urljoin(base_url, favicon_href)
         else:
             favicon_url = urljoin(base_url, '/favicon.ico')
-        if title=="GitHub · Change is constant. GitHub keeps you ahead.":
+        if "GitHub" in title:
             title="GitHub"
         if "Notion" in title:
             title='Notion'
@@ -58,10 +58,10 @@ def url_mention(url):#반환값은 딕셔너리 형태로 title, favicon_url, �
             'favicon_url': None,
             'url': url
         }
-a=url_mention('https://www.notion.com/ko')
-print("제목: ",a['title'])
-print("바비콘: ",a['favicon_url'])
-print("기존 url",a['url'])
+# a=url_mention('https://www.notion.com/ko')
+# print("제목: ",a['title'])
+# print("바비콘: ",a['favicon_url'])
+# print("기존 url",a['url'])
 
 def json_open(file:str)->dict:#입력값( 같은 폴더의 json파일 이름 혹은 절대주소인 str) \ (반환값 딕셔너리 자료형 이름:dict)
     with open(file, "r",encoding='utf-8') as f:
@@ -128,7 +128,13 @@ def todo_import(existing:dict):#check를 기본값0 엑스 1 세모 2 동그라�
         return existing.get(day, [])
     if day not in existing:
         existing[day]=[]
+    move=[]
+    keep=[]
     for i in day_minus_1_list:
         if i['check'] < 3:
-            existing[day].append(i)
+            move.append(i)
+        else:
+            keep.append(i)
+    existing[day].extend(move)
+    existing[day_minus_1]=keep
     return existing[day]
