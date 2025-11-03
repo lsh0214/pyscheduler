@@ -239,7 +239,7 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
     )
     
     # 2. '메모 상세' 뷰 (새로 추가)
-    memo_display_text = ft.Text(value="", size=14, selectable=True)
+    memo_display_text = ft.Text(value="", size=14, selectable=True, color='black')
     back_to_list_button = ft.IconButton(
         icon="arrow_back",
         width= 50, height= 50,
@@ -330,6 +330,14 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
             status = item.get('Status', None)
             pre_link = Todo_def.url_mention(link_val)
 
+            if link_val:
+                pre_link = Todo_def.url_mention(link_val)
+                # (안전장치) url_mention이 None을 반환할 경우를 대비
+                if pre_link is None:
+                    pre_link = {} 
+            else:
+                pre_link = {} # link_val이 None이면, pre_link는 빈 딕셔너리
+
             # (사용자님의 status 핸들러 - 그대로 유지)
             def create_status_handler(item_idx, dic_value):
                 def on_status_select(e):
@@ -346,12 +354,13 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
                 content=ft.Text(
                     value=status_display,
                     size=16,
-                    weight="w500"
+                    weight="w500",
+                    color='black'
                 ),
                 items=[
-                    ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx,1)),
-                    ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx,2)),
-                    ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx,3)),
+                    ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx,1), color='black'),
+                    ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx,2), color='black'),
+                    ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx,3), color='black'),
                 ], tooltip= 'complete'
             )
             
@@ -375,7 +384,8 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
                     ft.Text(
                         value=title_text, 
                         size=16, 
-                        weight="w500"
+                        weight="w500",
+                        color='black'
                     ),
                     ft.Container(expand=True),
                     memo_button
@@ -387,36 +397,94 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
             due_text_control = ft.Text(
                 value=f"Due: {due_val}" if due_val else " ", 
                 size=11, 
-                color="grey_700",
+                color='black',
                 opacity=1.0 if due_val else 0.0 
             )
-
-            icon_row_contents = ft.Row(
-                controls=[
-                    ft.Image(
-                        src=pre_link.get('favicon_url') if link_val else None,
-                        width = 12, height = 12,
-                        opacity=1.0 if link_val else 0.0
-                    ),
-                    ft.Text(
-                        pre_link.get('title') if link_val else None,
-                        size=12,
-                        weight=ft.FontWeight.W_500
-                    )
-                ],
-                spacing=5,
-                vertical_alignment=ft.CrossAxisAlignment.START
-            )
-            icon_row_controls = ft.Container(
-                content=icon_row_contents,
-                on_click=lambda _, url=pre_link.get('url'): page.launch_url(url) if url else None,
+            # link 처리 부분
+            if link_val:
                 
-                tooltip=f"링크 열기: {pre_link.get('url')}" if link_val else None,
-                padding=0 # 불필요한 여백 제거
-            )
-
+                pre_link = Todo_def.url_mention(link_val)
+                title = pre_link.get('title')
+                url = pre_link.get('url')
+                
+                if not url or not url.startswith("https://"):
+                    print("링크가 없거나, 'https://'로 시작하지 않습니다.")
+                    # URL 형식 오류
+                    icon_row_content = ft.Row(
+                        controls=[
+                            ft.Text(
+                                value="URL 형식이 잘못되었습니다",
+                                size=12,
+                                weight=ft.FontWeight.W_500,
+                                color="red"
+                            )
+                        ],
+                        spacing=5,
+                        height=16
+                    )
+                    
+                    icon_row_controls = ft.Container(
+                        content=icon_row_content,
+                        padding=0
+                    )
+                else:
+                    # 정상적인 링크 데이터
+                    favicon_url = pre_link.get('favicon_url')
+                    title = pre_link.get('title')
+                    url = pre_link.get('url')
+                        
+                    # 파비콘 유무에 따라 구성
+                    if favicon_url:
+                        # 파비콘 있으면: 이미지 + 텍스트
+                        icon_row_content = ft.Row(
+                            controls=[
+                                ft.Image(
+                                    src=favicon_url,
+                                    width=12,
+                                    height=12
+                                ),
+                                ft.Text(
+                                    value=title,
+                                    size=12,
+                                    weight=ft.FontWeight.W_500,
+                                    color='black'
+                                )
+                            ],
+                            spacing=5,
+                            height=16
+                        )
+                    else:
+                        # 파비콘 없으면: 공백 + 텍스트
+                        icon_row_content = ft.Row(
+                            controls=[
+                                ft.Container(width=12),
+                                ft.Text(
+                                    value=title,
+                                    size=12,
+                                    weight=ft.FontWeight.W_500
+                                )
+                            ],
+                            spacing=5,
+                            height=16
+                        )
+                        
+                        # 파비콘 있든 없든 컨테이너로 감싸기
+                    icon_row_controls = ft.Container(
+                        content=icon_row_content,
+                        on_click=lambda _, u=url: page.launch_url(u) if u else None,
+                        tooltip=f"링크 열기: {url}" if url else None,
+                        padding=0
+                    )
+            else:
+                # link_val이 없으면 빈 투명 영역
+                icon_row_controls = ft.Row(
+                    controls=[ft.Text(' ')],
+                    height=16,
+                    spacing=5
+                )
+            
             new_item_controls = [
-                title_row,  due_text_control, icon_row_controls  
+                title_row, due_text_control, icon_row_controls
             ]
             
             new_item = ft.Container(
@@ -429,13 +497,13 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
             
             todo_list.controls.append(new_item)
 
-        # [수정] 뷰가 전환되었을 수도 있으니, 목록 뷰일 때만 page.update()
         if main_switch.content == list_view_container:
             page.update()
         else:
             print("메모 뷰가 활성 중이므로, 목록 UI는 백그라운드에서 갱신됨.")
             
         print(f"UI 업데이트 완료. 현재 {page.current_page}/{total_pages} 페이지 표시.")
+
 
     def check_queue(queue_to_check: multiprocessing.Queue):
         while True:
