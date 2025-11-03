@@ -305,6 +305,7 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
 
         total_items = len(all_items_data)
         total_pages = (total_items - 1) // ITEMS_PER_PAGE + 1
+
         if total_items == 0:
             total_pages = 1 
             
@@ -395,8 +396,7 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
                     ft.Image(
                         src=pre_link.get('favicon_url') if link_val else None,
                         width = 12, height = 12,
-                        opacity=1.0 if link_val else 0.0,
-                        padding=ft.padding.only(top=2)
+                        opacity=1.0 if link_val else 0.0
                     ),
                     ft.Text(
                         pre_link.get('title') if link_val else None,
@@ -500,7 +500,7 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
         tooltip='Left', width=25, height=25,
         on_click=on_page_left 
     )
-    pageNum = ft.Text(value='1/1', size=10, weight=ft.FontWeight.W_500)
+    pageNum = ft.Text(value='1/1', size=10, weight=ft.FontWeight.W_500, color='black')
     pageBtn_R = ft.IconButton(
         content=ft.Image(src='Right.png', width=15, height=15),
         tooltip='Right', width=25, height=25,
