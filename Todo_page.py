@@ -4,6 +4,7 @@ import datetime
 import threading
 import time
 import queue  
+import Todo_def
 
 def add_window(page: ft.Page, queue_from_main: multiprocessing.Queue):
     
@@ -13,10 +14,10 @@ def add_window(page: ft.Page, queue_from_main: multiprocessing.Queue):
     )
 
     def start_select_Day(e):
-        selected_date = e.control.value
-        print(f"선택된 날짜: {selected_date.strftime('%Y-%m-%d')}")
-        start.data = selected_date
-        start.text = selected_date.strftime('%Y-%m-%d')
+        page.selected_date = e.control.value
+        print(f"선택된 날짜: {page.selected_date.strftime('%Y-%m-%d')}")
+        start.data = page.selected_date
+        start.text = page.selected_date.strftime('%Y-%m-%d')
         page.update()
 
     def start_date_dismissal(e):
@@ -25,6 +26,7 @@ def add_window(page: ft.Page, queue_from_main: multiprocessing.Queue):
         
     start_date_picker = ft.DatePicker(
         on_change=start_select_Day,
+        first_date=datetime.date.today(),
         on_dismiss=start_date_dismissal
     )
     
@@ -42,9 +44,9 @@ def add_window(page: ft.Page, queue_from_main: multiprocessing.Queue):
         page.update()
         
     def due_select_Day(e):
-        selected_date = e.control.value
-        print(f"선택된 날짜: {selected_date.strftime('%Y-%m-%d')}")
-        due.data = selected_date
+        selected_due_date = e.control.value
+        print(f"선택된 날짜: {selected_due_date.strftime('%Y-%m-%d')}")
+        due.data = selected_due_date
         page.update()
 
     def due_date_dismissal(e):
@@ -58,10 +60,27 @@ def add_window(page: ft.Page, queue_from_main: multiprocessing.Queue):
         on_dismiss=due_date_dismissal
     )
     page.overlay.append(due_picker)
-    
+
     def due_picker_set(e):
+        def not_have_start(e):
+            page.close(start_alert)
+            due.value = False
+            page.update()
+        
         if e.control.value:
-            page.open(due_picker) 
+            if start.data:
+                due_picker.first_date = start.data
+                due_picker.value = start.data
+                page.open(due_picker)
+            else:
+                start_alert = ft.AlertDialog(
+                    modal=True, title=ft.Text("경고"),
+                    content=ft.Text("시작일을 선택해주세요."),
+                    actions=[ft.TextButton("확인", on_click=not_have_start)],
+                    actions_alignment=ft.MainAxisAlignment.END,
+                )
+                page.open(start_alert)
+                return
         else:
             due.data = None
             page.update()
@@ -196,12 +215,90 @@ def add_window(page: ft.Page, queue_from_main: multiprocessing.Queue):
 def start_add_window_app(child_queue: multiprocessing.Queue):
     ft.app(target=lambda p: add_window(p, child_queue))
 
+# (main 함수가 시작되는 부분)
 def main(page: ft.Page, main_queue: multiprocessing.Queue):
     
+    # --- [데이터 및 상태 변수] ---
     all_items_data = [] 
     page.current_page = 1 
     ITEMS_PER_PAGE = 3    
 
+    # --- [신규] UI 컨트롤 미리 정의 ---
+    
+    # 1. '할 일 목록' 뷰 (사용자 코드의 todo_list)
+    todo_list = ft.Column(
+        controls=[], scroll=ft.ScrollMode.AUTO, spacing=7,
+        horizontal_alignment=ft.CrossAxisAlignment.START, expand=True
+    )
+    # [신규] todo_list를 감싸는 컨테이너
+    list_view_container = ft.Container(
+        content=todo_list, 
+        padding=ft.padding.all(20), 
+        expand=True, 
+        alignment=ft.alignment.top_left
+    )
+    
+    # 2. '메모 상세' 뷰 (새로 추가)
+    memo_display_text = ft.Text(value="", size=14, selectable=True)
+    back_to_list_button = ft.IconButton(
+        icon="arrow_back",
+        width= 50, height= 50,
+        tooltip="목록으로 돌아가기"
+        # on_click은 핸들러 정의 후에 설정
+    )
+    # [신규] 메모 뷰를 감싸는 컨테이너
+    memo_view_container = ft.Container(
+        content=ft.Column(
+            controls=[back_to_list_button, memo_display_text],
+            scroll=ft.ScrollMode.AUTO
+        ),
+        padding=ft.padding.all(20), 
+        expand=True, 
+        alignment=ft.alignment.top_left
+    )
+
+    # 3. [신규] 뷰 스위처 (메인 컨텐츠 영역이 됨)
+    #    처음에는 'list_view_container'를 보여줍니다.
+    main_switch = ft.AnimatedSwitcher(
+        content=list_view_container,
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=200,
+        reverse_duration=200,
+        expand=True
+    )
+    
+    # --- [신규] 뷰 전환 핸들러 ---
+    
+    # [신규] '뒤로가기' 버튼이 호출할 함수
+    def main_show_list(e):
+        """'메모 뷰'에서 '목록 뷰'로 전환합니다."""
+        main_switch.content = list_view_container
+        main_switch.update()
+    
+    # [신규] '뒤로가기' 버튼에 함수 연결
+    back_to_list_button.on_click = main_show_list
+
+    # --- 👇 [수정] 여기가 사용자님이 요청하신 'main_clean' 제어 함수입니다 ---
+    def main_clean(e, item_data):
+        """
+        '메모' 버튼 클릭 시 호출됩니다.
+        AnimatedSwitcher의 내용을 '메모 뷰'로 전환하고 메모 내용을 채웁니다.
+        """
+        # 1. 'item_data' 딕셔너리에서 'Memo' 값을 가져옵니다.
+        memo_text = item_data.get('Memo')
+        
+        # 2. '메모 뷰'의 텍스트 컨트롤(memo_display_text) 값을 설정합니다.
+        if not memo_text: # memo_val is None or ""
+            memo_display_text.value = "저장된 메모가 없습니다."
+        else:
+            memo_display_text.value = memo_text
+        
+        # 3. (핵심) AnimatedSwitcher의 내용을 'memo_view_container'로 변경합니다.
+        main_switch.content = memo_view_container
+        main_switch.update() # 화면 전환
+    # --- [수정 끝] ---
+
+    # --- [UI 업데이트 함수] ---
     def update_ui_display():
         
         todo_list.controls.clear()
@@ -221,6 +318,7 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
 
         pageNum.value = f"{page.current_page}/{total_pages}"
 
+        # [수정] for item in items_to_display: -> idx, item 추적
         for idx, item in enumerate(items_to_display):
             actual_idx = start_index + idx
             
@@ -229,16 +327,18 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
             memo_val = item.get('Memo')
             link_val = item.get('Link')
             status = item.get('Status', None)
+            pre_link = Todo_def.url_mention(link_val)
 
-            def create_status_handler(item_idx):
+            # (사용자님의 status 핸들러 - 그대로 유지)
+            def create_status_handler(item_idx, dic_value):
                 def on_status_select(e):
                     selected_status = e.control.text
                     all_items_data[item_idx]['Status'] = selected_status
                     print(f"항목 {item_idx}의 상태를 {selected_status}로 변경")
+                    print(f"딕셔너리 vlaue = {dic_value}") 
                     update_ui_display()
                 return on_status_select
 
-            # 상태에 따라 표시할 텍스트 결정
             status_display = status if status else "▢"
             
             status_popup = ft.PopupMenuButton(
@@ -248,12 +348,26 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
                     weight="w500"
                 ),
                 items=[
-                    ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx)),
-                    ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx)),
-                    ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx)),
-                ]
+                    ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx,1)),
+                    ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx,2)),
+                    ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx,3)),
+                ], tooltip= 'complete'
             )
+            
+            # --- 👇 [수정] 'on_click'이 'main_clean'을 호출하도록 변경 ---
+            # [삭제] def main_clean(e): (여기 있던 빈 함수 삭제)
 
+            memo_button = ft.IconButton(
+                content = ft.Image(src = 'memo.png', width = 12, height = 12),
+                opacity=1.0 if memo_val else 0.0,
+                tooltip="메모 보기",
+                # 람다를 사용해 현재 'item' 딕셔너리를 'main_clean' 함수로 전달
+                on_click=lambda e, item_ref=item: main_clean(e, item_ref),
+                width=30,
+                height=30
+            )
+            # --- [수정 끝] ---
+            
             title_row = ft.Row(
                 controls=[
                     status_popup,
@@ -263,14 +377,7 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
                         weight="w500"
                     ),
                     ft.Container(expand=True),
-                    ft.IconButton(
-                        content = ft.Image(src = 'memo.png', width = 12, height = 12),
-                        opacity=1.0 if memo_val else 0.0,
-                        tooltip="메모 보기",
-                        on_click=None,
-                        width=30,
-                        height=30
-                    )
+                    memo_button
                 ],
                 vertical_alignment="center",
                 spacing=5
@@ -283,17 +390,29 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
                 opacity=1.0 if due_val else 0.0 
             )
 
-            icon_row_controls = ft.Row(
+            icon_row_contents = ft.Row(
                 controls=[
-                    ft.Icon(
-                        name="link", 
-                        size=12, 
-                        color="grey_600",
-                        opacity=1.0 if link_val else 0.0 
+                    ft.Image(
+                        src=pre_link.get('favicon_url') if link_val else None,
+                        width = 12, height = 12,
+                        opacity=1.0 if link_val else 0.0,
+                        padding=ft.padding.only(top=2)
                     ),
+                    ft.Text(
+                        pre_link.get('title') if link_val else None,
+                        size=12,
+                        weight=ft.FontWeight.W_500
+                    )
                 ],
                 spacing=5,
-                height=16 
+                vertical_alignment=ft.CrossAxisAlignment.START
+            )
+            icon_row_controls = ft.Container(
+                content=icon_row_contents,
+                on_click=lambda _, url=pre_link.get('url'): page.launch_url(url) if url else None,
+                
+                tooltip=f"링크 열기: {pre_link.get('url')}" if link_val else None,
+                padding=0 # 불필요한 여백 제거
             )
 
             new_item_controls = [
@@ -310,7 +429,12 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
             
             todo_list.controls.append(new_item)
 
-        page.update()
+        # [수정] 뷰가 전환되었을 수도 있으니, 목록 뷰일 때만 page.update()
+        if main_switch.content == list_view_container:
+            page.update()
+        else:
+            print("메모 뷰가 활성 중이므로, 목록 UI는 백그라운드에서 갱신됨.")
+            
         print(f"UI 업데이트 완료. 현재 {page.current_page}/{total_pages} 페이지 표시.")
 
     def check_queue(queue_to_check: multiprocessing.Queue):
@@ -413,16 +537,9 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
         )
     )
 
-    todo_list = ft.Column(
-        controls=[], scroll=ft.ScrollMode.AUTO, spacing=7,
-        horizontal_alignment=ft.CrossAxisAlignment.START, expand=True
-    )
-    
-    main_content = ft.Container(
-        content=todo_list, padding=ft.padding.all(20), expand=True, alignment=ft.alignment.top_left
-    )
-
-    layout = ft.Row(controls=[sidebar, main_content], spacing=0, expand=True)
+    # [수정] main_content가 이제 'main_switch'를 가리킵니다.
+    # (todo_list, list_view_container 등은 위에서 이미 정의됨)
+    layout = ft.Row(controls=[sidebar, main_switch], spacing=0, expand=True)
     page.add(layout)
     
     update_ui_display()
