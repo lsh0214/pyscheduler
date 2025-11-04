@@ -592,8 +592,8 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
     def main_clean(e, item_data):
         memo_text = item_data.get('Memo')
         title_text = item_data.get('Title')
-        start_val = item.get('Start')
-        due_val = item.get('Due')
+        start_val = item_data.get('Start')
+        due_val = item_data.get('Due')
         memo_view_title.value = title_text
         memo_view_duration.value = calculate_duration(start_val, due_val)
         memo_display_text.value = memo_text if memo_text else "저장된 메모가 없습니다."
@@ -817,31 +817,66 @@ def main(page: ft.Page, main_queue: multiprocessing.Queue):
                     opacity=1.0 if due_val else 0.0 
                 )
                 
-                # --- ★ [원본 로직] 'link_val'을 이용한 링크/파비콘 처리 ---
-                icon_row_contents = ft.Row(
-                    controls=[
-                        ft.Image(
-                            src=pre_link.get('favicon_url') if link_val else None,
-                            width = 12, height = 12,
-                            opacity=1.0 if link_val else 0.0 # None일 때 오류 방지
-                        ),
-                        ft.Text(
-                            pre_link.get('title') if link_val else None,
-                            size=12,
-                            weight=ft.FontWeight.W_500,
-                            color="black" # 'black' 추가 (다크모드)
+                # --- ★ [수정] 'link_val'을 이용한 링크/파비콘 처리 ---
+          
+                # 동적으로 컨트롤을 담을 리스트
+                link_controls_list = []
+                
+                # 클릭 이벤트와 툴팁은 pre_link의 'url'을 기반으로 설정
+                actual_url = pre_link.get('url')
+                click_handler = (lambda _, url=actual_url: page.launch_url(url) if url else None)
+                tooltip_text = f"링크 열기: {actual_url}" if actual_url else None
+
+                if link_val: # 링크 값이 실제로 존재하는 경우에만
+                    favicon_url = pre_link.get('favicon_url')
+                    link_title = pre_link.get('title')
+
+                    if favicon_url:
+                        # 1. 파비콘이 있으면: 파비콘 + 타이틀
+                        link_controls_list.append(
+                            ft.Image(
+                                src=favicon_url, # 이 시점에는 None이 아님
+                                width = 12, height = 12
+                            )
                         )
-                    ],
+                        link_controls_list.append(
+                            ft.Text(
+                                link_title,
+                                size=12,
+                                weight=ft.FontWeight.W_500,
+                                color="black"
+                            )
+                        )
+                    elif actual_url:
+                        # 2. 파비콘은 없고 URL만 있으면: URL 텍스트 (사용자 요청)
+                        link_controls_list.append(
+                            ft.Text(
+                                actual_url, # URL 자체를 텍스트로 표시
+                                size=12,
+                                weight=ft.FontWeight.W_500,
+                                color="blue", # 하이퍼링크처럼 보이도록
+                                italic=True
+                            )
+                        )
+                    # (else: link_val은 있지만 pre_link가 아무것도 반환 안하면 리스트는 비어있음)
+
+                # --- [수정된 부분] ---
+                icon_row_contents = ft.Row(
+                    controls=link_controls_list, # 동적으로 채워진 리스트 사용
                     spacing=5,
                     vertical_alignment=ft.CrossAxisAlignment.START
                 )
+                
+                # --- ★ [레이아웃 붕괴 방지 수정] ---
                 icon_row_controls = ft.Container(
                     content=icon_row_contents,
-                    on_click=lambda _, url=pre_link.get('url'): page.launch_url(url) if url else None,
-                    tooltip=f"링크 열기: {pre_link.get('url')}" if link_val else None,
-                    padding=0 
+                    on_click=click_handler, # 핸들러 연결
+                    tooltip=tooltip_text,   # 툴팁 연결
+                    padding=0,
+                    height=14,  # 고정 높이를 주어 공간을 항상 차지하도록 함
+                    opacity=1.0 if link_val else 0.0, # visible 대신 opacity 사용
                 )
-                # --- [원본 로직 끝] ---
+                # --- ★ [수정 끝] ---
                 
                 new_item_controls = [title_row, due_text_control, icon_row_controls]
                 new_item = ft.Container(
