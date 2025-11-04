@@ -868,7 +868,7 @@ def main(page: ft.Page):
 
                     if favicon_url:
                         link_controls_list.append(
-                            ft.Image(src=favicon_url, width = 14, height = 14)
+                            ft.Image(src=favicon_url, width = 15, height = 15)
                         )
                         link_controls_list.append(
                             ft.Text(link_title, size=12, weight=ft.FontWeight.W_500, color="black")
