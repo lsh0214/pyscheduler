@@ -624,10 +624,10 @@ def main(page: ft.Page):
         try:
             start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
             due_date = datetime.datetime.strptime(due_date_str, '%Y-%m-%d').date()
-            delta = (due_date - start_date).days
-            if delta < 0: return "기간 오류" 
-            elif delta == 0: return " (당일)" 
-            else: return f" (총 {delta + 1}일)"
+            delta = (due_date-start_date).days
+            if delta == 0: return "(D-Day)" 
+            elif delta > 0: return f"(D-{delta}일)"
+            else: return f"(D+{-delta}일)"
         except ValueError: return "" 
 
     # 메모 뷰 표시
@@ -811,6 +811,7 @@ def main(page: ft.Page):
 
             for actual_idx, item in tuples_to_display:
                 title_text = item.get('Title', '')
+                start_val = item.get('Start', None)
                 due_val = item.get('Due', None)
                 memo_val = item.get('Memo')
                 link_val = item.get('Link')
@@ -850,8 +851,8 @@ def main(page: ft.Page):
                     ], vertical_alignment="center", spacing=5
                 )
                 due_text_control = ft.Text(
-                    value=f"Due: {due_val}" if due_val else " ", 
-                    size=11, color="black", 
+                    value=f"Due: {due_val} {calculate_duration(start_val, due_val)}" if due_val else " ", 
+                    size=11, color="black", # 'grey_700'에서 'black'으로 (다크모드)
                     opacity=1.0 if due_val else 0.0 
                 )
                 
