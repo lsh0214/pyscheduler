@@ -868,7 +868,7 @@ def main(page: ft.Page):
 
                     if favicon_url:
                         link_controls_list.append(
-                            ft.Image(src=favicon_url, width = 12, height = 12)
+                            ft.Image(src=favicon_url, width = 14, height = 14)
                         )
                         link_controls_list.append(
                             ft.Text(link_title, size=12, weight=ft.FontWeight.W_500, color="black")
@@ -884,7 +884,7 @@ def main(page: ft.Page):
                 icon_row_contents = ft.Row(
                     controls=link_controls_list, 
                     spacing=5,
-                    vertical_alignment=ft.CrossAxisAlignment.START
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER
                 )
                 
                 icon_row_controls = ft.Container(
@@ -892,7 +892,7 @@ def main(page: ft.Page):
                     on_click=click_handler, 
                     tooltip=tooltip_text,
                     padding=0,
-                    height=14,  # 고정 높이
+                    height=16,  # 고정 높이
                     opacity=1.0 if link_val else 0.0, # opacity 사용
                 )
                 # --- 링크 처리 끝 ---
@@ -900,7 +900,7 @@ def main(page: ft.Page):
                 new_item_controls = [title_row, due_text_control, icon_row_controls]
                 new_item = ft.Container(
                     content=ft.Column(controls=new_item_controls, spacing=1, tight=True),
-                    padding=ft.padding.only(left=10, top=8, right=10, bottom=8),
+                    padding=ft.padding.only(left=10, top=12, right=10, bottom=12),
                     bgcolor='#F5F5F5', border_radius=5, border=ft.border.all(1, '#E0E0E0')
                 )
                 todo_list.controls.append(new_item)
