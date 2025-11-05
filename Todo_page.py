@@ -4,10 +4,43 @@ import Todo_def  # 사용자 정의 모듈
 import calendar
 from flet import FilePickerResultEvent, padding
 from dateutil.relativedelta import relativedelta
+import json
+import traceback # 오류 추적용
+import os # [신규] 절대 경로를 위해 import
+
+# [신규] 1. 파일 절대 경로 설정
+try:
+    # 이 .py 파일이 있는 폴더의 절대 경로
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError: 
+    # (예: IDLE 같은 __file__이 없는 환경)
+    BASE_DIR = os.getcwd()
+print(f"로그: 기준 경로는 {BASE_DIR} 입니다.")
+
+# [신규] 2. 저장할 JSON 파일의 '절대 경로'
+JSON_FILE_PATH = os.path.join(BASE_DIR, "my_schedule.json")
+print(f"로그: 저장 파일 경로는 {JSON_FILE_PATH} 입니다.")
+
+# [신규] 3. 이미지 파일의 '절대 경로'를 반환하는 헬퍼 함수
+def get_asset_path(file_name: str) -> str:
+    return os.path.join(BASE_DIR, file_name)
+
 
 def main(page: ft.Page):
     
-    all_items_data = [] 
+    # [신규] 4. 앱 시작 시 JSON 파일 불러오기 (절대 경로 사용)
+    schedule_data = Todo_def.json_open(JSON_FILE_PATH)
+    schedule_data = Todo_def.todo_import(schedule_data) 
+    
+    temp_items_by_id = {}
+    for date_key, items_on_day in schedule_data.items():
+        for item in items_on_day:
+            item_id = (item.get('Title'), item.get('Start'))
+            if item_id[0] and item_id[1]: 
+                temp_items_by_id[item_id] = item
+                
+    all_items_data = list(temp_items_by_id.values()) 
+    
     page.current_page = 1 
     ITEMS_PER_PAGE = 3
     page.editing_item_index = None 
@@ -15,6 +48,53 @@ def main(page: ft.Page):
     page.calendar_view_date = datetime.date.today()
     pre_to_day = datetime.date.today()
     page.filter_date = pre_to_day 
+
+    # === [수정] 앱 종료 확인 및 저장 로직 (overlay 추가 버전) ===
+
+    # 1. "예" 버튼 클릭 시 (저장 후 종료)
+    def yes_exit_click(e):
+        print("로그: 사용자가 '예'를 선택했습니다. 데이터를 저장합니다...")
+        try:
+            Todo_def.json_save(schedule_data, JSON_FILE_PATH)
+            print("로그: 데이터 저장 완료.")
+        except Exception as ex:
+            print(f"!!! 종료 중 저장 오류 발생: {ex}")
+        
+        page.window.destroy()
+
+    # 2. "아니오" 버튼 클릭 시 (다이얼로그만 닫기)
+    def no_exit_click(e):
+        page.close(exit_confirm_dialog)
+        page.update()
+
+    # 3. 종료 확인 다이얼로그 정의
+    exit_confirm_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("종료 확인"),
+        content=ft.Text("정말로 앱을 종료하시겠습니까?"),
+        actions=[
+            ft.ElevatedButton("Yes", on_click=yes_exit_click),
+            ft.OutlinedButton("No", on_click=no_exit_click),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+    
+    # [수정] 다른 다이얼로그처럼 page.overlay에 미리 추가합니다.
+    page.overlay.append(exit_confirm_dialog)
+
+    # 4. 윈도우 이벤트 핸들러 (X 버튼 눌렀을 때)
+    def window_event_handler(e: ft.ControlEvent):
+        if e.data == "close":
+            page.open(exit_confirm_dialog)
+            page.update()
+
+    # 5. Flet 페이지에 설정 적용
+    page.window.prevent_close = True
+    # [수정] page.window.on_event로 명시적 변경
+    page.window.on_event = window_event_handler
+    
+    # === [수정] 끝 ===
+
 
     # --- (공통) 로케일 설정 ---
     page.locale_configuration = ft.LocaleConfiguration(
@@ -115,7 +195,7 @@ def main(page: ft.Page):
                 ft.Row(
                     controls=[
                         ft.IconButton(
-                            content=ft.Image(src='Left.png',width=15, height=15),
+                            content=ft.Image(src=get_asset_path('Left.png'),width=15, height=15),
                             on_click=lambda e: change_month(e, -1)
                         ),
                         ft.Container(
@@ -123,7 +203,7 @@ def main(page: ft.Page):
                             alignment=ft.alignment.center
                         ),
                         ft.IconButton(
-                            content=ft.Image(src='Right.png', width=15, height=15),
+                            content=ft.Image(src=get_asset_path('Right.png'), width=15, height=15),
                             on_click=lambda e: change_month(e, 1)
                         ),
                     ],
@@ -187,37 +267,34 @@ def main(page: ft.Page):
     )
     page.overlay.append(edit_due_picker) 
 
-    # --- 👇 [A] 삭제 확인 로직 (신규) ---
-    
-    # 1. 사용자가 "삭제"를 눌렀을 때 실제 실행될 함수
+    # --- 삭제 로직: 'confirmed_delete' ---
     def confirmed_delete(e_dialog):
-        page.close(delete_alert) # 1. 확인창 닫기
+        nonlocal schedule_data
+        page.close(delete_alert) 
         
         idx_to_delete = page.editing_item_index
         
-        # 2. 데이터 유효성 검사
         if idx_to_delete is None or idx_to_delete < 0 or idx_to_delete >= len(all_items_data):
             print(f"삭제 오류: 유효하지 않은 인덱스입니다. ({idx_to_delete})")
             main_show_list(None) 
             return
             
-        # 3. (핵심) 데이터 리스트에서 항목 삭제
         try:
             deleted_item = all_items_data.pop(idx_to_delete)
             print(f"항목 삭제 완료 (인덱스 {idx_to_delete}): {deleted_item.get('Title')}")
+            
+            schedule_data = Todo_def.dict_end_edit(schedule_data, deleted_item)
+            
         except Exception as ex:
             print(f"삭제 중 오류 발생: {ex}")
         
-        # 4. 상태 리셋 및 UI 갱신
         page.editing_item_index = None
-        update_ui_display()      # 목록 새로고침
-        main_show_list(None)     # 목록 뷰로 복귀
+        update_ui_display()
+        main_show_list(None)
     
-    # 2. 사용자가 "취소"를 눌렀을 때
     def cancel_delete(e_dialog):
         page.close(delete_alert)
 
-    # 3. 삭제 확인창 (AlertDialog) 정의
     delete_alert = ft.AlertDialog(
         modal=True,
         title=ft.Text("항목 삭제"),
@@ -227,19 +304,16 @@ def main(page: ft.Page):
             ft.TextButton(
                 "삭제", 
                 on_click=confirmed_delete,
-                style=ft.ButtonStyle(color="red") # "삭제" 버튼은 빨간색으로
+                style=ft.ButtonStyle(color="red")
             ),
         ],
         actions_alignment=ft.MainAxisAlignment.END,
     )
     
-    # --- 👇 [B] 삭제 버튼 클릭 핸들러 (신규) ---
-    # 이 함수는 확인창을 '열기'만 합니다.
     def delete_item_click(e):
         page.open(delete_alert)
 
-    # --- 👇 [C] 확인창을 페이지에 추가 (신규) ---
-    page.overlay.append(delete_alert)
+    page.overlay.append(delete_alert) # 삭제 다이얼로그도 미리 추가
 
     def edit_due_picker_set(e):
         if e.control.value: 
@@ -307,7 +381,7 @@ def main(page: ft.Page):
                 edit_link_checkbox, edit_link_field, edit_nextDay,
                 ft.Row(
                     controls=[ft.Container(expand=True), cancel_edit_button, save_edit_button],
-                    alignment=ft.MainAxisAlignment.END # 버튼 오른쪽 정렬
+                    alignment=ft.MainAxisAlignment.END
                 )
             ],
             scroll=ft.ScrollMode.ADAPTIVE,
@@ -318,12 +392,11 @@ def main(page: ft.Page):
         expand=True
     )
 
-    ### 파일 선택창
+    ### --- 6. 파일 템플릿 불러오기 뷰 ---
     def add_file_start_Day(e):
         selected_date = e.control.value
         print(f"선택된 날짜: {selected_date.strftime('%Y-%m-%d')}")
-        add_start_button.data = selected_date
-        add_start_button.text = selected_date.strftime('%Y-%m-%d')
+        file_start_button.data = selected_date
         page.update()
         
     def add_file_start_dismissal(e):
@@ -331,34 +404,70 @@ def main(page: ft.Page):
         file_start_button.value = False
         page.update()
 
-    # --- 6. 일정 추가 폼 뷰 (Add Form View) ---
     add_file_start_picker = ft.DatePicker(
         on_change=add_file_start_Day,
         first_date=datetime.date.today(),
         on_dismiss=add_file_start_dismissal
     )
-    # 👇 [수정 1] 이 DatePicker도 오버레이에 추가해야 합니다!
     page.overlay.append(add_file_start_picker)
 
-    # 👇 [수정 2] DatePicker를 열어줄 이벤트 핸들러 함수를 새로 만듭니다.
     def open_add_file_start_picker(e):
-        if e.control.value: # 체크박스가 True가 될 때
-            # DatePicker를 엽니다.
+        if e.control.value:
             page.open(add_file_start_picker)
-        else: # 체크박스가 False가 될 때
+        else:
             e.control.data = None
             page.update()
     
-    file_path_text = ft.Text(value="", size=14, color="black", weight=ft.FontWeight.BOLD)
+    file_path_text = ft.Text(value="", size=14, color="black", weight=ft.FontWeight.BOLD, data=None)
     file_start_button = ft.Checkbox(label='시작일 설정', on_change=open_add_file_start_picker, data=None, label_style=ft.TextStyle(color="black"))
     
+    # --- '파일 저장' 버튼 로직 (dict_import) ---
     def file_start_save(e):
-        print(f"파일 시작일 저장됨: {file_start_button.data}")
-        main_show_list(None)
+        nonlocal schedule_data
+        nonlocal all_items_data
+        
+        template_path = file_path_text.data
+        start_day_obj = file_start_button.data
+        
+        if not template_path:
+            print("오류: 불러올 JSON 파일이 선택되지 않았습니다.")
+            return
+            
+        try:
+            template_data = Todo_def.json_open(template_path)
+            if not template_data:
+                print(f"오류: 템플릿 파일({template_path})이 비어있거나 손상되었습니다.")
+                return
+
+            start_day_str = start_day_obj.isoformat() if start_day_obj else None
+            
+            schedule_data = Todo_def.dict_import(
+                template_data, 
+                start_day=start_day_str, 
+                existing=schedule_data
+            )
+            
+            # UI용 all_items_data 리스트 전면 재구성
+            temp_items_by_id = {}
+            for date_key, items_on_day in schedule_data.items():
+                for item in items_on_day:
+                    item_id = (item.get('Title'), item.get('Start'))
+                    if item_id[0] and item_id[1]:
+                        temp_items_by_id[item_id] = item
+            all_items_data = list(temp_items_by_id.values())
+            
+            print(f"로그: {template_path}에서 템플릿을 성공적으로 불러왔습니다.")
+
+            update_ui_display()
+            main_show_list(None)
+            
+        except Exception as ex:
+            print(f"파일 불러오기 중 심각한 오류 발생: {ex}")
+            traceback.print_exc()
     
-    def file_start_cancel(e): #-------------------------------------------------------------여기에 이제 원하는 파일의 작업을 진행하면 됩니당!
-        """파일 시작일 취소 버튼 - Add 창으로 복귀"""
+    def file_start_cancel(e): 
         file_start_button.data = None
+        file_path_text.data = None
         show_add_form_view(None)
     
     file_save_button = ft.TextButton('저장', on_click=file_start_save)
@@ -389,15 +498,15 @@ def main(page: ft.Page):
         expand=True
     )
 
+    # --- 7. 일정 추가 폼 뷰 (Add Form View) ---
     def on_dialog_result(e: FilePickerResultEvent):
-        """파일 선택 결과 처리"""
         if e.files:
             selected_file_path = e.files[0].path
             print(f"선택한 파일 경로: {selected_file_path}")
             
-            # 파일 경로를 표시하고 파일 시작일 설정 뷰로 전환
             file_path_text.value = f"선택된 파일: {selected_file_path}"
-            file_start_button.data = None  # 시작일 초기화
+            file_path_text.data = selected_file_path
+            file_start_button.data = None
             
             pagination_row.visible = False
             main_switch.content = file_start_container
@@ -406,17 +515,6 @@ def main(page: ft.Page):
         else:
             print("파일 선택이 취소되었습니다.")
         page.update()
-
-    
-
-    # def on_dialog_result(e: FilePickerResultEvent):
-    #     if e.files:
-    #         # e.files는 선택된 파일(FilePickerFile 객체)의 리스트입니다.
-    #         selected_file_path = e.files[0].path
-    #         print(f"선택한 파일 경로: {selected_file_path}")
-    #     else:
-    #         print("파일 선택이 취소되었습니다.")
-    #     page.update()
 
     def add_start_select_Day(e):
         selected_date = e.control.value
@@ -443,7 +541,7 @@ def main(page: ft.Page):
 
     def add_due_date_dismissal(e):
         print("DatePicker가 닫혔습니다.")
-        add_due_checkbox.value = False # 날짜 선택 안하고 닫으면 체크 해제
+        add_due_checkbox.value = False
         page.update()
         print("날짜가 선택되지 않아 마감 체크를 해제합니다.")
 
@@ -452,7 +550,6 @@ def main(page: ft.Page):
         on_dismiss=add_due_date_dismissal
     )
     
-    # DatePicker들을 메인 페이지의 오버레이에 추가
     page.overlay.append(add_start_date_picker)
     page.overlay.append(add_due_picker)
     
@@ -473,13 +570,12 @@ def main(page: ft.Page):
             add_due_checkbox.value = False
             page.update()
         
-        if e.control.value: # 체크박스가 True가 될 때
-            if add_start_button.data: # 시작일이 선택되었는지 확인
+        if e.control.value:
+            if add_start_button.data:
                 add_due_picker.first_date = add_start_button.data
                 add_due_picker.value = add_start_button.data
                 page.open(add_due_picker)
             else:
-                # 시작일이 선택되지 않았으면 경고
                 start_alert = ft.AlertDialog(
                     modal=True, title=ft.Text("경고"),
                     content=ft.Text("시작일을 선택해주세요."),
@@ -488,16 +584,14 @@ def main(page: ft.Page):
                 )
                 page.open(start_alert)
                 return
-        else: # 체크박스가 False가 될 때
+        else:
             add_due_checkbox.data = None
             page.update()
     
-    # 폼 리셋 함수
     def reset_add_form():
         add_todo_field.value = ""
         add_start_button.text = "시작일 설정"
         add_start_button.data = None
-        add_file_button.data = None
         add_due_checkbox.value = False
         add_due_checkbox.data = None
         add_memo_checkbox.value = False
@@ -507,10 +601,11 @@ def main(page: ft.Page):
         add_link_field.value = ""
         add_link_field.visible = False
         add_nextDay_checkbox.value = False
-        # page.update()는 호출한 쪽(save_data)에서 처리
     
+    # --- '일정 저장' 버튼 로직 (dict_add) ---
     def add_save_data(e):
-        # 유효성 검사 (기존 add_window의 save_data 로직)
+        nonlocal schedule_data
+        
         if not add_todo_field.value:
             title_alert = ft.AlertDialog(
                 modal=True, title=ft.Text("경고"),
@@ -521,7 +616,6 @@ def main(page: ft.Page):
             page.open(title_alert)
             return
         
-        # --- 제목 길이 검사 ---
         ko_bid_cnt = 0
         lit_int_cnt = 0
         for i in add_todo_field.value:
@@ -541,7 +635,6 @@ def main(page: ft.Page):
             )
             page.open(len_title_alert)
             return
-        # --- 길이 검사 끝 ---
             
         if not add_start_button.data:
             start_alert = ft.AlertDialog(
@@ -589,7 +682,6 @@ def main(page: ft.Page):
             page.open(link_alert)
             return
 
-        # 데이터 생성
         startVal = add_start_button.data.strftime('%Y-%m-%d') if add_start_button.data else None
         dueVal = add_due_checkbox.data.strftime('%Y-%m-%d') if add_due_checkbox.value and add_due_checkbox.data else None
 
@@ -605,51 +697,43 @@ def main(page: ft.Page):
         print("--- 저장 시작 ---")
         print(check_save_data)
 
-        # 메인 리스트에 직접 추가
+        new_save_format = { startVal: check_save_data }
+        schedule_data = Todo_def.dict_add(new_save_format, schedule_data)
+        print("항목이 'schedule_data' 딕셔너리(저장용)에 추가되었습니다.")
+
         all_items_data.append(check_save_data)
-        print("항목이 메인 리스트에 직접 추가되었습니다.")
+        print("항목이 'all_items_data' 리스트(UI용)에 추가되었습니다.")
         
-        # UI 갱신 및 폼 리셋
-        reset_add_form() # 폼 필드 초기화
+        reset_add_form() 
         
-        # 새 항목이 추가되었으므로, 해당 항목이 보이도록 필터 날짜를 변경하고 UI 갱신
         page.filter_date = datetime.datetime.strptime(startVal, '%Y-%m-%d').date()
         sidebar_month_text.value = page.filter_date.strftime("%m.")
         sidebar_day_text.value = page.filter_date.strftime("%d")
-        page.current_page = 1 # 새 항목을 보려면 1페이지로
+        page.current_page = 1 
         
-        update_ui_display() # 목록 뷰 갱신
-        main_show_list(None) # 목록 뷰로 전환 (page.update() 포함됨)
+        update_ui_display()
+        main_show_list(None)
 
-    #파일 선택 정의
     file_picker = ft.FilePicker(on_result=on_dialog_result)
     page.overlay.append(file_picker)
     add_file_button = ft.Container(
-        # 2. Container의 content에 Row를 넣어 아이콘과 텍스트를 나란히 배치
         content=ft.Row(
             controls=[
-                # 3. 아이콘 크기 (size=14)
                 ft.Icon(name="upload_file", size=14, color="#3E6D91"), 
-                # 4. 텍스트 크기 (size=10)
                 ft.Text("파일 선택", size=12, color="#3E6D91") 
             ],
-            # (선택) 내용물을 중앙 정렬s
             vertical_alignment=ft.CrossAxisAlignment.CENTER
         ),
-        
-        # 5. (요청사항) 테두리, 사각 모양, 여백
         border=ft.border.all(1, "#E0E0E0"),
         border_radius=0,
-        padding=padding.symmetric(horizontal=8, vertical=4), # 버튼 크기 조절
-        
-        # 6. (핵심) Container를 버튼처럼 작동하게 함
+        padding=padding.symmetric(horizontal=8, vertical=4),
         on_click=lambda _: file_picker.pick_files(
             allow_multiple=False,
             allowed_extensions=["json"]
         ),
         tooltip="JSON 파일 선택"
     )
-    # (추가) UI 컨트롤 정의
+    
     add_title = ft.Text(value='일정 추가', size=20, weight=ft.FontWeight.BOLD, color="black")
     add_todo_field = ft.TextField(label="Title", width=250)
     add_start_button = ft.TextButton('시작일 설정', on_click=add_start_picker_set, data=None)
@@ -662,11 +746,10 @@ def main(page: ft.Page):
     add_save_button = ft.TextButton('적용', on_click=add_save_data)
     add_cancel_button = ft.TextButton(
         "취소", 
-        on_click=lambda e: main_show_list(None) or reset_add_form(), # 취소 시 폼 리셋
+        on_click=lambda e: main_show_list(None) or reset_add_form(),
         style=ft.ButtonStyle(color="black")
     )
 
-    # (추가) 컨테이너 정의
     add_form_container = ft.Container(
         content=ft.Column(
             controls=[
@@ -675,7 +758,7 @@ def main(page: ft.Page):
                 add_link_checkbox, add_link_field, add_nextDay_checkbox,
                 ft.Row(
                     controls=[ft.Container(expand=True), add_cancel_button, add_save_button],
-                    alignment=ft.MainAxisAlignment.END # 버튼 오른쪽 정렬
+                    alignment=ft.MainAxisAlignment.END
                 )
             ],
             scroll=ft.ScrollMode.ADAPTIVE,
@@ -695,27 +778,23 @@ def main(page: ft.Page):
         expand=True
     )
 
-
     pageBtn_L = ft.IconButton(
         content=ft.Image(src='Left.png', width=15, height=15),
         tooltip='Left', width=25, height=25,
-        # on_click은 아래 on_page_left 함수 정의 후에 설정
     )
     pageNum = ft.Text(value='1/1', size=10, weight=ft.FontWeight.W_500, color='black')
     pageBtn_R = ft.IconButton(
         content=ft.Image(src='Right.png', width=15, height=15),
         tooltip='Right', width=25, height=25,
-        # on_click은 아래 on_page_right 함수 정의 후에 설정
     )
 
-    # 페이지네이션 컨트롤을 묶어서 관리할 Row 객체
     pagination_row = ft.Row(
         controls=[pageBtn_L, pageNum, pageBtn_R],
         alignment=ft.MainAxisAlignment.CENTER, spacing=5,
-        visible=True # 기본값은 True (보이게)
+        visible=True
     )
-    # === 뷰 전환 및 핸들러 함수 ===
     
+    # === 뷰 전환 및 핸들러 함수 ===
     def main_show_list(e):
         page.window.height = 365
         main_switch.content = list_view_container
@@ -724,7 +803,6 @@ def main(page: ft.Page):
         main_switch.update()
         page.update()
     
-    # '일정 추가' 뷰 표시 함수
     def show_add_form_view(e):
         page.window.height = 365
         pagination_row.visible = False
@@ -736,8 +814,7 @@ def main(page: ft.Page):
     back_to_list_button.on_click = main_show_list
     back_to_list_from_cal.on_click = main_show_list
 
-    # 캘린더 UI 생성 함수 (이벤트 점 포함)
-    # 캘린더 UI 생성 함수 (이벤트 점 포함)
+    # 캘린더 UI 생성 함수
     def build_calendar_ui():
         calendar.setfirstweekday(calendar.SUNDAY)
         year = page.calendar_view_date.year
@@ -745,33 +822,16 @@ def main(page: ft.Page):
         calendar_header_text.value = f"{year}년 {month}월"
         calendar_days_container.controls.clear()
         
-        # --- 👇 [핵심 수정] ---
         today = datetime.date.today()
-        selected_date = page.filter_date # '오늘'이 아닌 '선택된 날짜'
-        # --- [수정 끝] ---
+        selected_date = page.filter_date
         
         events_on_day = {}
-        for item in all_items_data:
-            item_start_str = item.get('Start')
-            if not item_start_str: continue
+        for date_str, items_list in schedule_data.items():
             try:
-                item_start_date = datetime.datetime.strptime(item_start_str, '%Y-%m-%d').date()
-                item_due_str = item.get('Due')
-                if item_due_str:
-                    item_due_date = datetime.datetime.strptime(item_due_str, '%Y-%m-%d').date()
-                    current_day = item_start_date
-                    while current_day <= item_due_date:
-                        if current_day.year == year and current_day.month == month:
-                            if current_day.day not in events_on_day:
-                                events_on_day[current_day.day] = True
-                        if current_day.year > year or (current_day.year == year and current_day.month > month):
-                                break
-                        current_day += datetime.timedelta(days=1)
-                else:
-                    if item_start_date.year == year and item_start_date.month == month:
-                            if item_start_date.day not in events_on_day:
-                                events_on_day[item_start_date.day] = True
-            except ValueError:
+                current_day = datetime.date.fromisoformat(date_str)
+                if current_day.year == year and current_day.month == month and items_list:
+                    events_on_day[current_day.day] = True
+            except (ValueError, TypeError):
                 continue
         
         month_matrix = calendar.monthcalendar(year, month)
@@ -781,31 +841,25 @@ def main(page: ft.Page):
                 if day == 0:
                     week_row_controls.append(ft.Container(width=40, height=38))
                 else:
-                    # --- 👇 [핵심 수정] ---
-                    current_day_date = datetime.date(year, month, day) # [신규]
-                    is_today = (current_day_date == today) # [수정]
-                    is_selected = (current_day_date == selected_date) # [신규]
+                    current_day_date = datetime.date(year, month, day) 
+                    is_today = (current_day_date == today) 
+                    is_selected = (current_day_date == selected_date)
                     
-                    # 1. 기본 텍스트 색상 (요일별)
                     text_color = "red" if day_idx == 0 else ("blue" if day_idx == 6 else "black")
-                    
-                    # 2. 기본 배경/테두리/굵기
-                    bgcolor = "transparent" # 기본 배경 투명
+                    bgcolor = "transparent"
                     border = None
                     text_weight = "normal"
                     
-                    # 3. '오늘' 날짜 스타일 (선택되지 않았을 때)
                     if is_today and not is_selected:
                         bgcolor = "transparent"
-                        border = ft.border.all(1, "#3E91E4") # 파란 테두리
+                        border = ft.border.all(1, "#3E91E4")
                         text_color = "#3E91E4"
                         text_weight = "bold"
                     
-                    # 4. '선택된' 날짜 스타일 (오늘이든 아니든 덮어씀)
                     if is_selected:
-                        bgcolor = "#1976D2" # 파란 배경
+                        bgcolor = "#1976D2"
                         border = None
-                        text_color = "white" # 흰색 텍스트
+                        text_color = "white"
                         text_weight = "bold"
 
                     day_content = ft.Container(
@@ -813,7 +867,6 @@ def main(page: ft.Page):
                         alignment=ft.alignment.center, width=30, height=30,
                         bgcolor=bgcolor, border=border, border_radius=15,
                     )
-                    # --- [수정 끝] ---
                     
                     has_event = events_on_day.get(day, False)
                     event_dot = ft.Container(
@@ -835,6 +888,8 @@ def main(page: ft.Page):
             calendar_days_container.controls.append(
                 ft.Row(controls=week_row_controls, spacing=0, alignment=ft.MainAxisAlignment.CENTER)
             )
+        if main_switch.content == calendar_view_container:
+            page.update()
 
     # 달력 날짜 클릭 핸들러
     def on_calendar_day_click(day):
@@ -852,7 +907,7 @@ def main(page: ft.Page):
         new_date = current_date + relativedelta(months=delta)
         page.calendar_view_date = new_date.replace(day=1)
         build_calendar_ui()
-        main_switch.update()
+        page.update()
 
     # 캘린더 뷰 표시
     def show_calendar_view(e):
@@ -865,25 +920,13 @@ def main(page: ft.Page):
         page.update()
 
     # 메모 뷰 기간 계산
-    # [수정] 메모 뷰 기간 계산 (D-Day 계산 로직으로 변경)
     def calculate_duration(reference_date, due_date_str):
-        """
-        기준 날짜(reference_date)로부터 마감일(due_date_str)까지의 D-Day를 계산합니다.
-        """
-        
-        # 마감일이 없으면 D-Day를 표시하지 않음
         if not due_date_str:
             return "" 
-
         try:
-            # --- 👇 [핵심 수정 1] ---
-            # 기준 날짜 (page.filter_date 객체)
-            start_date = reference_date # (이 인수는 이미 date 객체임)
-            # 마감일 (문자열)
+            start_date = reference_date 
             due_date = datetime.datetime.strptime(due_date_str, '%Y-%m-%d').date()
-            # --- [수정 끝] ---
             
-            # (마감일 - 기준일)
             delta = (due_date - start_date).days
             
             if delta < 0:
@@ -892,36 +935,30 @@ def main(page: ft.Page):
                 return "(D-Day)"
             else:
                 return f"(D-{delta}일)"
-        except ValueError:
-            return "" # 날짜 형식 오류
-        except TypeError: # [추가] 혹시 모를 타입 오류 방지
-            print(f"calculate_duration 타입 오류: {reference_date}, {due_date_str}")
+        except (ValueError, TypeError) as e:
+            print(f"calculate_duration 오류: {e}")
             return ""
 
     # 메모 뷰 표시
     def main_clean(e, item_data):
         memo_text = item_data.get('Memo')
         title_text = item_data.get('Title')
-        start_val = item_data.get('Start') # (D-Day 계산에 사용 안 함)s
         due_val = item_data.get('Due')
         
         memo_view_title.value = title_text
-        
-        # --- 👇 [핵심 수정 2] ---
-        # calculate_duration의 첫 번째 인수로 'page.filter_date' (기준일) 전달
-        # 두 번째 인수로 'due_val' (마감일 문자열) 전달
         memo_view_duration.value = calculate_duration(page.filter_date, due_val)
-        # --- [수정 끝] ---
         
         memo_display_text.value = memo_text if memo_text else "저장된 메모가 없습니다."
         pagination_row.visible = False
         main_switch.content = memo_view_container
         main_switch.update()
 
-    # 수정 저장 버튼 핸들러
+    # '수정 저장' 버튼 로직
     def save_edit_button_click(e):
+        nonlocal schedule_data
+        
         idx = page.editing_item_index
-        if idx is None or idx >= len(all_items_data):
+        if idx is None or idx < 0 or idx >= len(all_items_data):
             print("오류: 수정할 항목 인덱스가 잘못되었습니다.")
             main_show_list(None)
             return
@@ -942,11 +979,17 @@ def main(page: ft.Page):
             'Link': edit_link_field.value if edit_link_checkbox.value else None,
             'Due': dueVal,
             'NextDay': edit_nextDay.value,
-            'Status': original_data.get('Status') 
+            'Status': original_data.get('Status', 0)
         }
         
+        schedule_data = Todo_def.dict_end_edit(schedule_data, original_data)
+        
+        new_save_format = { updated_data['Start']: updated_data }
+        schedule_data = Todo_def.dict_add(new_save_format, schedule_data)
+        print(f"항목 {idx}가 'schedule_data' 딕셔너리(저장용)에서 수정되었습니다.")
+
         all_items_data[idx] = updated_data
-        print(f"항목 {idx}가 수정되었습니다.")
+        print(f"항목 {idx}가 'all_items_data' 리스트(UI용)에서 수정되었습니다.")
 
         page.editing_item_index = None
         update_ui_display()
@@ -1036,24 +1079,19 @@ def main(page: ft.Page):
             edit_selection_list.controls.append(ft.Text("수정할 항목이 없습니다.", color="black"))
         else:
             for i, (actual_idx, item) in enumerate(tuples_to_display):
-                # display_num = (page.current_page - 1) * ITEMS_PER_PAGE + i + 1
-                
                 edit_selection_list.controls.append(
                     ft.Checkbox(
-                        label=f" {item.get('Title')}", # 라벨은 기존과 동일
-                        value=False,                   # 항상 체크 안 됨으로 시작
+                        label=f" {item.get('Title')}", 
+                        value=False,
                         data=actual_idx,
                         label_style=ft.TextStyle(color="black", size= 14),
-                        
-                        # 체크박스 값이 True가 되는 순간(e.control.value)
-                        # start_editing_item(idx)를 호출합니다.
-                        # (체크를 해제할 때는 아무 일도 일어나지 않습니다.)
                         on_change=lambda e, idx=actual_idx: start_editing_item(idx) if e.control.value else None
                     )
                 )
                 edit_selection_list.controls.append(ft.Text(' ', style=ft.TextStyle(size= 10)))
 
         main_switch.content = edit_selection_container
+        main_switch.update()
         page.update()
 
     # --- UI 갱신 함수 (메인 리스트) ---
@@ -1061,7 +1099,6 @@ def main(page: ft.Page):
         try:
             todo_list.controls.clear()
             
-            # --- 날짜 필터링 로직 ---
             filter_date = page.filter_date
             filtered_item_tuples = []
             if filter_date:
@@ -1083,7 +1120,6 @@ def main(page: ft.Page):
                         continue
             else:
                 filtered_item_tuples = list(enumerate(all_items_data))
-            # --- 필터링 끝 ---
 
             total_items = len(filtered_item_tuples)
             total_pages = (total_items - 1) // ITEMS_PER_PAGE + 1
@@ -1103,54 +1139,69 @@ def main(page: ft.Page):
                 link_val = item.get('Link')
                 status = item.get('Status', 0)
                 
-                pre_link = Todo_def.url_mention(link_val)
-
-                def create_status_handler(item_idx, dic_value):
-                    def on_status_select(e):
-                        # (dic_value는 1, 2, 3 또는 0이 될 수 있음)
-                        all_items_data[item_idx]['Status'] = dic_value
-                        print(f"항목 {item_idx}의 상태를 {dic_value}(으)로 변경")
-                        update_ui_display()
-                    return on_status_select
-
+                pre_link = {}
+                if link_val:
+                    try:
+                        pre_link = Todo_def.url_mention(link_val)
+                    except Exception as e:
+                        print(f"url_mention 오류: {e}")
+                        pre_link = {'title': '링크 처리 중 오류', 'favicon_url': None, 'url': link_val}
+                
                 status_map = { 0: "▢", 1: "O", 2: "△", 3: "X" }
-                status_display = status_map.get(status, "▢") # 0,1,2,3이 아니면 "▢"
+                status_display = status_map.get(status, "▢")
 
                 status_text_control = ft.Text(
-                        value=status_display, 
-                        size=16, 
-                        weight="w500", 
-                        color="black"
-                    )
+                    value=status_display, 
+                    size=16, 
+                    weight="w500", 
+                    color="black"
+                )
+                
                 def create_status_handler(item_idx, dic_value, text_control_to_update):
-                        def on_status_select(e):
-                            # 1. (데이터) 원본 데이터 갱신
+                    def on_status_select(e):
+                        nonlocal schedule_data
+                        try:
                             all_items_data[item_idx]['Status'] = dic_value
-                            print(f"항목 {item_idx}의 상태를 {dic_value}(으)로 변경")
                             
-                            # 2. (UI) 이 버튼의 텍스트만 콕 집어 갱신
+                            item_ref = all_items_data[item_idx]
+                            id_title = item_ref['Title']
+                            id_start = item_ref['Start']
+                            
+                            s_date = datetime.date.fromisoformat(item_ref['Start'])
+                            d_str = item_ref.get('Due')
+                            d_date = datetime.date.fromisoformat(d_str) if d_str else s_date
+                            
+                            curr = s_date
+                            while curr <= d_date:
+                                key = curr.isoformat()
+                                if key in schedule_data:
+                                    for i_dict in schedule_data[key]:
+                                        if i_dict['Title'] == id_title and i_dict['Start'] == id_start:
+                                            i_dict['Status'] = dic_value
+                                            break 
+                                curr += datetime.timedelta(days=1)
+
+                            print(f"항목 {item_idx}의 상태를 {dic_value}(으)로 변경 (List/Dict 동기화됨)")
+                            
                             text_control_to_update.value = status_map.get(dic_value, "▢")
-                            
-                            # 3. (중요) page.update()를 호출하여 UI에 즉시 반영
-                            #    (전체 update_ui_display()를 호출하는 것보다 100배 빠름)
                             page.update()
+                        except IndexError:
+                            print(f"Status 변경 오류: 잘못된 인덱스 {item_idx}")
+                        except Exception as ex:
+                            print(f"Status 변경 중 심각한 오류: {ex}")
+                            traceback.print_exc()
                             
-                            # ❌ update_ui_display() # <--- [제거] 이 비효율적인 전체 새로고침을 제거합니다!
-                        return on_status_select
+                    return on_status_select
 
                 status_popup = ft.PopupMenuButton(
-                        # --- 👇 [수정 3] 
-                        # content에 미리 정의한 Text 컨트롤을 연결합니다.
-                        content=status_text_control, 
-                        items=[
-                            # --- 👇 [수정 4] 
-                            # 핸들러에 위에서 만든 status_text_control을 전달합니다.
-                            ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx, 1, status_text_control)),
-                            ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx, 2, status_text_control)),
-                            ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx, 3, status_text_control)),
-                        ], 
-                        tooltip='complete'
-                    )
+                    content=status_text_control, 
+                    items=[
+                        ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx, 1, status_text_control)),
+                        ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx, 2, status_text_control)),
+                        ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx, 3, status_text_control)),
+                    ], 
+                    tooltip='complete'
+                )
                 
                 memo_button = ft.IconButton(
                     content=ft.Image(src='memo.png', width=12, height=12),
@@ -1167,19 +1218,15 @@ def main(page: ft.Page):
                         ft.Container(expand=True), memo_button
                     ], vertical_alignment="center", spacing=5
                 )
-                # --- 👇 [핵심 수정 2] ---
-                # D-Day 계산을 (page.filter_date -> due_val)로 변
+                
                 dday_text = calculate_duration(page.filter_date, due_val)
 
                 due_text_control = ft.Text(
-                    # [수정] Due: (마감일) (D-n) 형태로 표시
                     value=f"Due: {due_val} {dday_text}" if due_val else " ", 
                     size=11, color="black", 
                     opacity=1.0 if due_val else 0.0 
                 )
-                # --- [수정 끝] ---
                 
-                # --- 링크/파비콘 처리 (opacity + height) ---
                 link_controls_list = []
                 actual_url = pre_link.get('url')
                 click_handler = (lambda _, url=actual_url: page.launch_url(url) if url else None)
@@ -1215,10 +1262,9 @@ def main(page: ft.Page):
                     on_click=click_handler, 
                     tooltip=tooltip_text,
                     padding=0,
-                    height=16,  # 고정 높이
-                    opacity=1.0 if link_val else 0.0, # opacity 사용
+                    height=16,
+                    opacity=1.0 if link_val else 0.0,
                 )
-                # --- 링크 처리 끝 ---
                 
                 new_item_controls = [title_row, due_text_control, icon_row_controls]
                 new_item = ft.Container(
@@ -1236,6 +1282,7 @@ def main(page: ft.Page):
 
         except Exception as e:
             print(f"!!!!!!!! update_ui_display 함수 전체에서 치명적인 오류 발생: {e} !!!!!!!!")
+            traceback.print_exc()
             todo_list.controls.clear()
             todo_list.controls.append(ft.Text(f"오류: {e}", color="red"))
             page.update()
@@ -1277,6 +1324,7 @@ def main(page: ft.Page):
                 show_edit_selection_view(None)
             else:
                 update_ui_display() 
+                
     pageBtn_L.on_click = on_page_left
     pageBtn_R.on_click = on_page_right
 
@@ -1295,11 +1343,10 @@ def main(page: ft.Page):
             controls=[
                 ft.Container(height=20),
                 sidebar_month_text, 
-                sidebar_day_text,   
+                sidebar_day_text,  
                 ft.Container(height=20),
                 ft.IconButton(
                     content=ft.Image(src='Add.png', width=25, height=25), 
-                    # 'Add' 버튼 클릭 시 show_add_form_view 호출
                     on_click=show_add_form_view, 
                     tooltip='add'
                 ),
