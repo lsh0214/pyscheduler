@@ -505,19 +505,41 @@ def main(page: ft.Page):
         reverse_duration=200,
         expand=True
     )
-    
+
+
+    pageBtn_L = ft.IconButton(
+        content=ft.Image(src='Left.png', width=15, height=15),
+        tooltip='Left', width=25, height=25,
+        # on_click은 아래 on_page_left 함수 정의 후에 설정
+    )
+    pageNum = ft.Text(value='1/1', size=10, weight=ft.FontWeight.W_500, color='black')
+    pageBtn_R = ft.IconButton(
+        content=ft.Image(src='Right.png', width=15, height=15),
+        tooltip='Right', width=25, height=25,
+        # on_click은 아래 on_page_right 함수 정의 후에 설정
+    )
+
+    # 페이지네이션 컨트롤을 묶어서 관리할 Row 객체
+    pagination_row = ft.Row(
+        controls=[pageBtn_L, pageNum, pageBtn_R],
+        alignment=ft.MainAxisAlignment.CENTER, spacing=5,
+        visible=True # 기본값은 True (보이게)
+    )
     # === 뷰 전환 및 핸들러 함수 ===
     
     def main_show_list(e):
         page.window.height = 365
         main_switch.content = list_view_container
         page.editing_item_index = None
+        pagination_row.visible = True
         main_switch.update()
         page.update()
     
     # '일정 추가' 뷰 표시 함수
     def show_add_form_view(e):
         page.window.height = 365
+        pagination_row.visible = False
+        reset_add_form()
         main_switch.content = add_form_container
         main_switch.update()
         page.update()
@@ -646,6 +668,7 @@ def main(page: ft.Page):
     # 캘린더 뷰 표시
     def show_calendar_view(e):
         page.window.height = 385 #-----------------------------------------------------캘린더 높이 최적화
+        pagination_row.visible = False
         page.calendar_view_date = page.filter_date.replace(day=1)
         build_calendar_ui() 
         main_switch.content = calendar_view_container
@@ -702,6 +725,7 @@ def main(page: ft.Page):
         # --- [수정 끝] ---
         
         memo_display_text.value = memo_text if memo_text else "저장된 메모가 없습니다."
+        pagination_row.visible = False
         main_switch.content = memo_view_container
         main_switch.update()
 
@@ -777,6 +801,8 @@ def main(page: ft.Page):
         edit_link_field.visible = bool(link_val)
 
         edit_nextDay.value = item_data.get('NextDay', False)
+
+        pagination_row.visible = False
         
         main_switch.content = edit_form_container
         page.update()
@@ -784,6 +810,7 @@ def main(page: ft.Page):
     # 수정 항목 선택 뷰 표시
     def show_edit_selection_view(e):
         page.window.height = 365
+        pagination_row.visible = True
         edit_selection_list.controls.clear()
         
         filter_date = page.filter_date
@@ -1024,6 +1051,8 @@ def main(page: ft.Page):
                 show_edit_selection_view(None)
             else:
                 update_ui_display() 
+    pageBtn_L.on_click = on_page_left
+    pageBtn_R.on_click = on_page_right
 
     # --- 페이지 레이아웃 설정 ---
     page.title = 'PySchedule'
@@ -1033,18 +1062,6 @@ def main(page: ft.Page):
     page.window.maximizable = False
     page.padding = 0
     page.bgcolor = '#FFFFFF'
-    
-    pageBtn_L = ft.IconButton(
-        content=ft.Image(src='Left.png', width=15, height=15),
-        tooltip='Left', width=25, height=25,
-        on_click=on_page_left 
-    )
-    pageNum = ft.Text(value='1/1', size=10, weight=ft.FontWeight.W_500, color='black')
-    pageBtn_R = ft.IconButton(
-        content=ft.Image(src='Right.png', width=15, height=15),
-        tooltip='Right', width=25, height=25,
-        on_click=on_page_right 
-    )
     
     sidebar = ft.Container(
         width=90, height=450, bgcolor='#D9D9D9',
@@ -1073,10 +1090,7 @@ def main(page: ft.Page):
                     on_click=show_edit_selection_view 
                 ),
                 ft.Container(expand=True),
-                ft.Row(
-                    controls=[pageBtn_L, pageNum, pageBtn_R],
-                    alignment=ft.MainAxisAlignment.CENTER, spacing=5
-                ),
+                pagination_row,
                 ft.Container(height=20),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0
