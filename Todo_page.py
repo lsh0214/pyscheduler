@@ -2,7 +2,7 @@ import flet as ft
 import datetime
 import Todo_def  # 사용자 정의 모듈
 import calendar
-from flet import ButtonStyle, RoundedRectangleBorder, FilePickerResultEvent, TextStyle, padding
+from flet import FilePickerResultEvent, padding
 from dateutil.relativedelta import relativedelta
 
 def main(page: ft.Page):
@@ -156,6 +156,7 @@ def main(page: ft.Page):
         content=ft.Column(
             controls=[
                 ft.Text("수정할 항목 선택", size=20, weight=ft.FontWeight.BOLD, color="black"),
+                ft.Text(' ', size=12),
                 edit_selection_list,
                 ft.Row(
                     controls=[ft.Container(expand=True), back_to_list_from_edit_select],
@@ -186,6 +187,60 @@ def main(page: ft.Page):
     )
     page.overlay.append(edit_due_picker) 
 
+    # --- 👇 [A] 삭제 확인 로직 (신규) ---
+    
+    # 1. 사용자가 "삭제"를 눌렀을 때 실제 실행될 함수
+    def confirmed_delete(e_dialog):
+        page.close(delete_alert) # 1. 확인창 닫기
+        
+        idx_to_delete = page.editing_item_index
+        
+        # 2. 데이터 유효성 검사
+        if idx_to_delete is None or idx_to_delete < 0 or idx_to_delete >= len(all_items_data):
+            print(f"삭제 오류: 유효하지 않은 인덱스입니다. ({idx_to_delete})")
+            main_show_list(None) 
+            return
+            
+        # 3. (핵심) 데이터 리스트에서 항목 삭제
+        try:
+            deleted_item = all_items_data.pop(idx_to_delete)
+            print(f"항목 삭제 완료 (인덱스 {idx_to_delete}): {deleted_item.get('Title')}")
+        except Exception as ex:
+            print(f"삭제 중 오류 발생: {ex}")
+        
+        # 4. 상태 리셋 및 UI 갱신
+        page.editing_item_index = None
+        update_ui_display()      # 목록 새로고침
+        main_show_list(None)     # 목록 뷰로 복귀
+    
+    # 2. 사용자가 "취소"를 눌렀을 때
+    def cancel_delete(e_dialog):
+        page.close(delete_alert)
+
+    # 3. 삭제 확인창 (AlertDialog) 정의
+    delete_alert = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("항목 삭제"),
+        content=ft.Text("이 항목을 정말로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다."),
+        actions=[
+            ft.TextButton("취소", on_click=cancel_delete),
+            ft.TextButton(
+                "삭제", 
+                on_click=confirmed_delete,
+                style=ft.ButtonStyle(color="red") # "삭제" 버튼은 빨간색으로
+            ),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+    
+    # --- 👇 [B] 삭제 버튼 클릭 핸들러 (신규) ---
+    # 이 함수는 확인창을 '열기'만 합니다.
+    def delete_item_click(e):
+        page.open(delete_alert)
+
+    # --- 👇 [C] 확인창을 페이지에 추가 (신규) ---
+    page.overlay.append(delete_alert)
+
     def edit_due_picker_set(e):
         if e.control.value: 
             start_date = edit_start_text.data 
@@ -200,6 +255,11 @@ def main(page: ft.Page):
             page.update()
 
     edit_title = ft.Text(value='일정 수정', size=20, weight=ft.FontWeight.BOLD, color="black")
+    edit_delete_button = ft.TextButton(
+        '삭제', height=30,
+        on_click=delete_item_click,
+        style=ft.ButtonStyle(color='red')
+        )
     edit_todo_field = ft.TextField(label="Title", width=250) 
     
     edit_start_text = ft.Text(
@@ -241,7 +301,8 @@ def main(page: ft.Page):
     edit_form_container = ft.Container(
         content=ft.Column(
             controls=[
-                edit_title, edit_todo_field, edit_start_text, edit_due_checkbox,
+                ft.Row(controls=[edit_title, ft.Container(expand=True),edit_delete_button, ft.Text(' ')], alignment=ft.MainAxisAlignment.CENTER), 
+                edit_todo_field, edit_start_text, edit_due_checkbox,
                 edit_memo_checkbox, edit_memo_field,
                 edit_link_checkbox, edit_link_field, edit_nextDay,
                 ft.Row(
@@ -975,16 +1036,22 @@ def main(page: ft.Page):
             edit_selection_list.controls.append(ft.Text("수정할 항목이 없습니다.", color="black"))
         else:
             for i, (actual_idx, item) in enumerate(tuples_to_display):
-                display_num = (page.current_page - 1) * ITEMS_PER_PAGE + i + 1
+                # display_num = (page.current_page - 1) * ITEMS_PER_PAGE + i + 1
                 
                 edit_selection_list.controls.append(
-                    ft.TextButton(
-                        text=f"{display_num}번: {item.get('Title')}",
-                        on_click=lambda e, idx=actual_idx: start_editing_item(idx),
-                        data=actual_idx, 
-                        style=ft.ButtonStyle(color="black") 
+                    ft.Checkbox(
+                        label=f" {item.get('Title')}", # 라벨은 기존과 동일
+                        value=False,                   # 항상 체크 안 됨으로 시작
+                        data=actual_idx,
+                        label_style=ft.TextStyle(color="black", size= 14),
+                        
+                        # 체크박스 값이 True가 되는 순간(e.control.value)
+                        # start_editing_item(idx)를 호출합니다.
+                        # (체크를 해제할 때는 아무 일도 일어나지 않습니다.)
+                        on_change=lambda e, idx=actual_idx: start_editing_item(idx) if e.control.value else None
                     )
                 )
+                edit_selection_list.controls.append(ft.Text(' ', style=ft.TextStyle(size= 10)))
 
         main_switch.content = edit_selection_container
         page.update()
