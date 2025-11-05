@@ -3,6 +3,7 @@ import json
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import datetime
+import copy
 #동작버전 3.10 이상
 #테스트 버전 3.10.19
 def url_mention(url):#반환값은 딕셔너리 형태로 title, favicon_url, 기존 url로 키 구성되어 있어용
@@ -74,19 +75,27 @@ def json_save(file:dict,file_path:str):#매개변수 file은 사용하던 딕셔
         json.dump(file, f, ensure_ascii=False, indent=4)
 # json_save(나는_딕셔너리,'py2.json')
 
-def dict_one_add(new_save:dict,existing:dict|None=None): #매개변수로 새로운 값({날짜:{타이틀들}})형태 입니다 딕셔너리들 배열로 나열 없어요!!, 기존 값(없어도 됨) 리턴 되는 값을 딕셔너리로 활용하면 돼용
+def dict_add(new_save: dict, existing: dict | None = None) -> dict:
     if existing is None:
-        new_dict={}
-        for key, value in new_save.items():
-            new_dict[key] = [value]
-        return new_dict
+        existing = {}
+    schedule_item = list(new_save.values())[0]
+    start_date_str = schedule_item['Start'] 
+    start_date = datetime.date.fromisoformat(start_date_str)
+    due_date_str = schedule_item.get('Due')
+    if not due_date_str:
+        due_date = start_date
     else:
-        for i in new_save.keys():
-            if i not in existing.keys():
-                existing[i] = [new_save[i]]
-            else:
-                existing[i].append(new_save[i])
-        return existing
+        due_date = datetime.date.fromisoformat(due_date_str)
+    current_date = start_date
+    while current_date <= due_date:
+        date_key = current_date.isoformat()
+        item_to_add = copy.deepcopy(schedule_item)
+        if date_key not in existing:
+            existing[date_key] = [item_to_add]
+        else:
+            existing[date_key].append(item_to_add)
+        current_date += datetime.timedelta(days=1)
+    return existing
 
 # d=dict_add({
 #     "2025-10-05": {
@@ -131,7 +140,10 @@ def todo_import(existing:dict):#check를 기본값0 엑스 1 세모 2 동그라�
     move=[]
     keep=[]
     for i in day_minus_1_list:
-        if i['check'] < 3:
+        if_1 = i['Status'] < 3
+        if_2 = i['NextDay'] == True
+        if_3 = (not i['Due']) or (i['Due'] == day_minus_1)
+        if if_1 and if_2 and if_3:
             move.append(i)
         else:
             keep.append(i)
