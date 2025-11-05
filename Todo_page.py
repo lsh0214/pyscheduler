@@ -229,7 +229,7 @@ def main(page: ft.Page):
         label_style=ft.TextStyle(color="black") 
     )
     
-    save_edit_button = ft.ElevatedButton(text='저장')
+    save_edit_button = ft.TextButton('저장')
     
     cancel_edit_button = ft.TextButton(
         "취소", 
@@ -470,7 +470,7 @@ def main(page: ft.Page):
     add_link_checkbox = ft.Checkbox(label='링크 추가', on_change=add_link_change, label_style=ft.TextStyle(color="black"))
     add_link_field = ft.TextField(label='link', width=250, visible=False)
     add_nextDay_checkbox = ft.Checkbox(label='미완료 시 다음 일정에 자동 적용', label_style=ft.TextStyle(color="black"))
-    add_save_button = ft.ElevatedButton(text='Save', on_click=add_save_data)
+    add_save_button = ft.TextButton('적용', on_click=add_save_data)
     add_cancel_button = ft.TextButton(
         "취소", 
         on_click=lambda e: main_show_list(None) or reset_add_form(), # 취소 시 폼 리셋
@@ -517,8 +517,10 @@ def main(page: ft.Page):
     
     # '일정 추가' 뷰 표시 함수
     def show_add_form_view(e):
+        page.window.height = 365
         main_switch.content = add_form_container
         main_switch.update()
+        page.update()
 
     back_to_list_button.on_click = main_show_list
     back_to_list_from_cal.on_click = main_show_list
@@ -688,7 +690,7 @@ def main(page: ft.Page):
     def main_clean(e, item_data):
         memo_text = item_data.get('Memo')
         title_text = item_data.get('Title')
-        start_val = item_data.get('Start') # (D-Day 계산에 사용 안 함)
+        start_val = item_data.get('Start') # (D-Day 계산에 사용 안 함)s
         due_val = item_data.get('Due')
         
         memo_view_title.value = title_text
@@ -781,6 +783,7 @@ def main(page: ft.Page):
 
     # 수정 항목 선택 뷰 표시
     def show_edit_selection_view(e):
+        page.window.height = 365
         edit_selection_list.controls.clear()
         
         filter_date = page.filter_date
