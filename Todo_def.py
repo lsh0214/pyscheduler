@@ -137,6 +137,7 @@ def todo_import(existing:dict):#check를 기본값0 엑스 1 세모 2 동그라�
         return existing.get(day, [])
     if day not in existing:
         existing[day]=[]
+    existing_dict = existing.get(day, [])
     move=[]
     keep=[]
     for i in day_minus_1_list:
@@ -147,7 +148,7 @@ def todo_import(existing:dict):#check를 기본값0 엑스 1 세모 2 동그라�
             move.append(i)
         else:
             keep.append(i)
-    existing[day].extend(move)
+    existing[day] = move + existing_dict
     existing[day_minus_1]=keep
     return existing[day]
 
