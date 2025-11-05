@@ -4,10 +4,8 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import datetime
 import copy
-#동작버전 3.10 이상
-#테스트 버전 3.10.19
 
-def url_mention(url):#반환값은 딕셔너리 형태로 title, favicon_url, 기존 url로 키 구성되어 있어용
+def url_mention(url):
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -60,12 +58,8 @@ def url_mention(url):#반환값은 딕셔너리 형태로 title, favicon_url, �
             'favicon_url': None,
             'url': url
         }
-# a=url_mention('https://claude.ai/')
-# print("제목: ",a['title'])
-# print("바비콘: ",a['favicon_url'])
-# print("기존 url",a['url'])
 
-def json_open(file:str)->dict: #파일이 없거나 손상되었을 때도 프로그램이 다운되지 않고 빈 딕셔너리를 반환합니다.
+def json_open(file:str)->dict:
     try:
         with open(file, "r", encoding='utf-8') as f:
             return json.load(f)
@@ -76,23 +70,13 @@ def json_open(file:str)->dict: #파일이 없거나 손상되었을 때도 프�
         print(f"오류: {file} 파일이 손상되었습니다. 새 딕셔너리를 시작합니다.")
         return {}
 
-# f=input("원하는 json 파일이름")
-# 나는_딕셔너리=json_open(f)
-
-def json_save(file:dict,file_path:str): # 오류가 발생해도 앱 종료가 멈추지 않도록 print만 합니다.
-    """
-    [수정됨]
-    데이터 저장 시 발생할 수 있는 오류를 처리하기 위해
-    try...except 블록을 추가합니다. (앱 종료 안정성)
-    """
+def json_save(file:dict,file_path:str):
     try:
         with open(file_path,'w',encoding='utf-8') as f:
             json.dump(file, f, ensure_ascii=False, indent=4)
         print(f"로그: 데이터가 {file_path}에 성공적으로 저장되었습니다.")
     except Exception as e:
         print(f"오류: 데이터 저장 실패 ({file_path}) - {e}")
-
-# json_save(나는_딕셔너리,'py2.json')
 
 def dict_add(new_save: dict, existing: dict | None = None) -> dict:
     if existing is None:
@@ -124,24 +108,6 @@ def dict_add(new_save: dict, existing: dict | None = None) -> dict:
         
     return existing
 
-# d=dict_add({
-#     "2025-10-05": {
-#         "title": "Git 개념 학습",
-#         "desc": "Git 기초 명령어 학습하기",
-#         "link": "https://git-scm.com/book/ko/v2",
-#         "completed": False
-#     }
-# })
-# a={
-#     "2025-10-05": {
-#         "title": "알고리즘 문제 풀이",
-#         "desc": "백준 1010번 문제 풀기",
-#         "link": "https://www.acmicpc.net/problem/1010",
-#         "completed": False
-#     }
-# }
-# print(dict_add(a,d))
-
 def dict_import(new_save:dict, start_day:str|None=None, existing:dict|None=None):
     
     data_to_merge = {}
@@ -157,25 +123,47 @@ def dict_import(new_save:dict, start_day:str|None=None, existing:dict|None=None)
             
             for old_key_str, value_list in new_save.items():
                 old_key_date = datetime.date.fromisoformat(old_key_str)
+                
                 new_key_date = old_key_date + delta
                 new_key_str = new_key_date.isoformat()
                 
-                data_to_merge[new_key_str] = value_list
+                new_value_list = []
+                for item in value_list:
+                    new_item = copy.deepcopy(item)
+                    
+                    try:
+                        old_start_date = datetime.date.fromisoformat(new_item['Start'])
+                        new_start_date = old_start_date + delta
+                        new_item['Start'] = new_start_date.isoformat()
+                    except (KeyError, ValueError, TypeError) as e:
+                        print(f"    [경고] 항목의 'Start' 날짜 이동 실패: {e}")
+                        
+                    if new_item.get('Due'):
+                        try:
+                            old_due_date = datetime.date.fromisoformat(new_item['Due'])
+                            new_due_date = old_due_date + delta
+                            new_item['Due'] = new_due_date.isoformat()
+                        except (KeyError, ValueError, TypeError) as e:
+                            print(f"    [경고] 항목의 'Due' 날짜 이동 실패: {e}")
+                            
+                    new_value_list.append(new_item)
+                
+                data_to_merge[new_key_str] = new_value_list
                 
         except (ValueError, TypeError) as e:
             print(f"    [경고] 날짜 이동 중 오류 발생: {e}. 원본 new_save를 사용합니다.")
-            data_to_merge = new_save
+            data_to_merge = copy.deepcopy(new_save)
     else:
-        data_to_merge = new_save
+        data_to_merge = copy.deepcopy(new_save)
 
     if existing is None:
         return data_to_merge
     else:
         for i in data_to_merge.keys():
             if i not in existing:
-                existing[i] = data_to_merge[i]
+                existing[i] = copy.deepcopy(data_to_merge[i])
             else:
-                existing[i].extend(data_to_merge[i])
+                existing[i].extend(copy.deepcopy(data_to_merge[i]))
         return existing
     
 def todo_import(existing:dict):

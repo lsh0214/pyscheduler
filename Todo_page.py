@@ -3,32 +3,24 @@ import datetime
 import Todo_def  # 사용자 정의 모듈
 import calendar
 from flet import FilePickerResultEvent, padding
-from dateutil.relativedelta import relativedelta
-import json
-import traceback # 오류 추적용
-import os # [신규] 절대 경로를 위해 import
-
-# [신규] 1. 파일 절대 경로 설정
+from dateutil import relativedelta
+import traceback
+import os 
+import copy 
 try:
-    # 이 .py 파일이 있는 폴더의 절대 경로
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 except NameError: 
-    # (예: IDLE 같은 __file__이 없는 환경)
     BASE_DIR = os.getcwd()
 print(f"로그: 기준 경로는 {BASE_DIR} 입니다.")
 
-# [신규] 2. 저장할 JSON 파일의 '절대 경로'
 JSON_FILE_PATH = os.path.join(BASE_DIR, "my_schedule.json")
 print(f"로그: 저장 파일 경로는 {JSON_FILE_PATH} 입니다.")
 
-# [신규] 3. 이미지 파일의 '절대 경로'를 반환하는 헬퍼 함수
 def get_asset_path(file_name: str) -> str:
-    return os.path.join(BASE_DIR, file_name)
+    return os.path.join(BASE_DIR, "assets", file_name)
 
 
 def main(page: ft.Page):
-    
-    # [신규] 4. 앱 시작 시 JSON 파일 불러오기 (절대 경로 사용)
     schedule_data = Todo_def.json_open(JSON_FILE_PATH)
     schedule_data = Todo_def.todo_import(schedule_data) 
     
@@ -37,7 +29,7 @@ def main(page: ft.Page):
         for item in items_on_day:
             item_id = (item.get('Title'), item.get('Start'))
             if item_id[0] and item_id[1]: 
-                temp_items_by_id[item_id] = item
+                temp_items_by_id[item_id] = copy.deepcopy(item)
                 
     all_items_data = list(temp_items_by_id.values()) 
     
@@ -49,8 +41,6 @@ def main(page: ft.Page):
     pre_to_day = datetime.date.today()
     page.filter_date = pre_to_day 
 
-    # === [수정] 앱 종료 확인 및 저장 로직 (overlay 추가 버전) ===
-
     # 1. "예" 버튼 클릭 시 (저장 후 종료)
     def yes_exit_click(e):
         print("로그: 사용자가 '예'를 선택했습니다. 데이터를 저장합니다...")
@@ -59,6 +49,7 @@ def main(page: ft.Page):
             print("로그: 데이터 저장 완료.")
         except Exception as ex:
             print(f"!!! 종료 중 저장 오류 발생: {ex}")
+            traceback.print_exc()
         
         page.window.destroy()
 
@@ -79,7 +70,6 @@ def main(page: ft.Page):
         actions_alignment=ft.MainAxisAlignment.END,
     )
     
-    # [수정] 다른 다이얼로그처럼 page.overlay에 미리 추가합니다.
     page.overlay.append(exit_confirm_dialog)
 
     # 4. 윈도우 이벤트 핸들러 (X 버튼 눌렀을 때)
@@ -90,10 +80,8 @@ def main(page: ft.Page):
 
     # 5. Flet 페이지에 설정 적용
     page.window.prevent_close = True
-    # [수정] page.window.on_event로 명시적 변경
     page.window.on_event = window_event_handler
     
-    # === [수정] 끝 ===
 
 
     # --- (공통) 로케일 설정 ---
@@ -270,23 +258,32 @@ def main(page: ft.Page):
     # --- 삭제 로직: 'confirmed_delete' ---
     def confirmed_delete(e_dialog):
         nonlocal schedule_data
+        nonlocal all_items_data
         page.close(delete_alert) 
         
-        idx_to_delete = page.editing_item_index
+        idx_to_delete = page.editing_item_index 
+        filter_date_str = page.filter_date.isoformat()
         
-        if idx_to_delete is None or idx_to_delete < 0 or idx_to_delete >= len(all_items_data):
+        if idx_to_delete is None or idx_to_delete < 0:
             print(f"삭제 오류: 유효하지 않은 인덱스입니다. ({idx_to_delete})")
             main_show_list(None) 
             return
             
         try:
-            deleted_item = all_items_data.pop(idx_to_delete)
-            print(f"항목 삭제 완료 (인덱스 {idx_to_delete}): {deleted_item.get('Title')}")
+            deleted_item_instance = schedule_data[filter_date_str][idx_to_delete]
+            item_id = (deleted_item_instance.get('Title'), deleted_item_instance.get('Start'))
+            all_items_data = [
+                item for item in all_items_data 
+                if (item.get('Title'), item.get('Start')) != item_id
+            ]
+            print(f"항목 삭제 완료 (all_items_data): {item_id}")
+            schedule_data = Todo_def.dict_end_edit(schedule_data, deleted_item_instance)
+            print(f"항목 삭제 완료 (schedule_data): {item_id}")
             
-            schedule_data = Todo_def.dict_end_edit(schedule_data, deleted_item)
-            
+        except (KeyError, IndexError) as e:
+            print(f"삭제 중 오류 발생 (데이터 찾기 실패): {e}")
         except Exception as ex:
-            print(f"삭제 중 오류 발생: {ex}")
+            print(f"삭제 중 알 수 없는 오류 발생: {ex}")
         
         page.editing_item_index = None
         update_ui_display()
@@ -313,7 +310,7 @@ def main(page: ft.Page):
     def delete_item_click(e):
         page.open(delete_alert)
 
-    page.overlay.append(delete_alert) # 삭제 다이얼로그도 미리 추가
+    page.overlay.append(delete_alert)
 
     def edit_due_picker_set(e):
         if e.control.value: 
@@ -363,8 +360,88 @@ def main(page: ft.Page):
         label='미완료 시 다음 일정에 자동 적용',
         label_style=ft.TextStyle(color="black") 
     )
-    
-    save_edit_button = ft.TextButton('저장')
+
+    # '수정 저장' 버튼 로직
+    def save_edit_button_click(e):
+        nonlocal schedule_data
+        nonlocal all_items_data
+        
+        idx = page.editing_item_index 
+        filter_date_str = page.filter_date.isoformat()
+
+        if idx is None or idx < 0:
+            print("오류: 수정할 항목 인덱스가 잘못되었습니다.")
+            main_show_list(None)
+            return
+
+        if not edit_todo_field.value:
+            print("경고: 제목을 입력해주세요.")
+            return
+
+        try:
+            original_data = schedule_data[filter_date_str][idx]
+        except (KeyError, IndexError, TypeError):
+            print(f"오류: 수정할 원본 데이터를 찾을 수 없습니다. ({filter_date_str}[{idx}])")
+            main_show_list(None)
+            return
+
+        new_title = edit_todo_field.value
+        new_start_str = edit_start_text.data.strftime('%Y-%m-%d') # 'Start'는 변경 불가
+        new_memo = edit_memo_field.value if edit_memo_checkbox.value else None
+        new_link = edit_link_field.value if edit_link_checkbox.value else None
+        new_due_val = edit_due_checkbox.data.strftime('%Y-%m-%d') if edit_due_checkbox.value and edit_due_checkbox.data else None
+        new_nextday = edit_nextDay.value
+        
+        original_due_str = original_data.get('Due')
+
+        if original_due_str != new_due_val:
+            print("로그: 마감일이 변경되어 글로벌 수정을 수행합니다.")
+            
+            # (A) 새 데이터 객체 생성
+            updated_data = {
+                'Title': new_title,
+                'Start': new_start_str,
+                'Memo': new_memo,
+                'Link': new_link,
+                'Due': new_due_val,
+                'NextDay': new_nextday,
+                'Status': original_data.get('Status', 0) # Status는 현재 값 유지
+            }
+            
+            # (B) schedule_data에서 모든 기존 항목 삭제
+            schedule_data = Todo_def.dict_end_edit(schedule_data, original_data)
+            
+            # (C) schedule_data에 새 항목으로 재등록
+            new_save_format = { updated_data['Start']: updated_data }
+            schedule_data = Todo_def.dict_add(new_save_format, schedule_data)
+            
+            # (D) all_items_data에서도 마스터 항목 교체
+            item_id = (original_data['Title'], original_data['Start'])
+            for i, item in enumerate(all_items_data):
+                if (item.get('Title'), item.get('Start')) == item_id:
+                    all_items_data[i] = copy.deepcopy(updated_data) 
+                    break
+            print(f"항목 {item_id}가 'all_items_data' 리스트(UI용)에서 수정되었습니다.")
+
+        else:
+            # --- [2] 로컬 수정 로직 (신규 방식: 마감일 변경 없음) ---
+            print(f"로그: {filter_date_str}의 항목을 로컬 수정합니다.")
+            
+            # (A) schedule_data의 해당 날짜 항목만 직접 수정
+            target_item = schedule_data[filter_date_str][idx]
+            target_item['Title'] = new_title
+            target_item['Memo'] = new_memo
+            target_item['Link'] = new_link
+            target_item['NextDay'] = new_nextday
+            # Status, Start, Due는 변경되지 않음
+            
+            print(f"항목 {filter_date_str}[{idx}]가 'schedule_data'에서 수정되었습니다.")
+
+        page.editing_item_index = None
+        update_ui_display()
+        main_show_list(None)
+
+    save_edit_button = ft.TextButton('저장', on_click=save_edit_button_click)
     
     cancel_edit_button = ft.TextButton(
         "취소", 
@@ -394,9 +471,10 @@ def main(page: ft.Page):
 
     ### --- 6. 파일 템플릿 불러오기 뷰 ---
     def add_file_start_Day(e):
-        selected_date = e.control.value
-        print(f"선택된 날짜: {selected_date.strftime('%Y-%m-%d')}")
-        file_start_button.data = selected_date
+        selected_date_obj = e.control.value.date()
+        
+        print(f"선택된 날짜: {selected_date_obj.strftime('%Y-%m-%d')}")
+        file_start_button.data = selected_date_obj 
         page.update()
         
     def add_file_start_dismissal(e):
@@ -439,7 +517,22 @@ def main(page: ft.Page):
                 print(f"오류: 템플릿 파일({template_path})이 비어있거나 손상되었습니다.")
                 return
 
-            start_day_str = start_day_obj.isoformat() if start_day_obj else None
+            start_day_str = None
+            date_to_filter_to = None
+
+            if start_day_obj:
+                # 사용자가 날짜를 선택한 경우
+                start_day_str = start_day_obj.isoformat()
+                date_to_filter_to = start_day_obj
+            else:
+                # 사용자가 날짜를 선택 안 한 경우 (템플릿 원본 날짜 사용)
+                try:
+                    min_key_str = min(template_data.keys()) 
+                    date_to_filter_to = datetime.date.fromisoformat(min_key_str)
+                except (ValueError, TypeError, AttributeError):
+                    date_to_filter_to = datetime.date.today() # 비상시 오늘 날짜
+            
+
             
             schedule_data = Todo_def.dict_import(
                 template_data, 
@@ -453,12 +546,17 @@ def main(page: ft.Page):
                 for item in items_on_day:
                     item_id = (item.get('Title'), item.get('Start'))
                     if item_id[0] and item_id[1]:
-                        temp_items_by_id[item_id] = item
+                        temp_items_by_id[item_id] = copy.deepcopy(item)
             all_items_data = list(temp_items_by_id.values())
             
             print(f"로그: {template_path}에서 템플릿을 성공적으로 불러왔습니다.")
+            if date_to_filter_to:
+                page.filter_date = date_to_filter_to
+                sidebar_month_text.value = page.filter_date.strftime("%m.")
+                sidebar_day_text.value = page.filter_date.strftime("%d")
+                page.current_page = 1
 
-            update_ui_display()
+            update_ui_display() # 새 'filter_date'로 UI를 갱신
             main_show_list(None)
             
         except Exception as ex:
@@ -517,10 +615,11 @@ def main(page: ft.Page):
         page.update()
 
     def add_start_select_Day(e):
-        selected_date = e.control.value
-        print(f"선택된 날짜: {selected_date.strftime('%Y-%m-%d')}")
-        add_start_button.data = selected_date
-        add_start_button.text = selected_date.strftime('%Y-%m-%d')
+        selected_date_obj = e.control.value.date()
+        
+        print(f"선택된 날짜: {selected_date_obj.strftime('%Y-%m-%d')}")
+        add_start_button.data = selected_date_obj
+        add_start_button.text = selected_date_obj.strftime('%Y-%m-%d')
         page.update()
 
     def add_start_date_dismissal(e):
@@ -953,57 +1052,17 @@ def main(page: ft.Page):
         main_switch.content = memo_view_container
         main_switch.update()
 
-    # '수정 저장' 버튼 로직
-    def save_edit_button_click(e):
-        nonlocal schedule_data
-        
-        idx = page.editing_item_index
-        if idx is None or idx < 0 or idx >= len(all_items_data):
-            print("오류: 수정할 항목 인덱스가 잘못되었습니다.")
-            main_show_list(None)
-            return
-
-        if not edit_todo_field.value:
-            print("경고: 제목을 입력해주세요.")
-            return
-        
-        original_data = all_items_data[idx]
-        
-        startVal = edit_start_text.data.strftime('%Y-%m-%d') 
-        dueVal = edit_due_checkbox.data.strftime('%Y-%m-%d') if edit_due_checkbox.value and edit_due_checkbox.data else None
-
-        updated_data = {
-            'Title': edit_todo_field.value,
-            'Start': startVal,
-            'Memo': edit_memo_field.value if edit_memo_checkbox.value else None,
-            'Link': edit_link_field.value if edit_link_checkbox.value else None,
-            'Due': dueVal,
-            'NextDay': edit_nextDay.value,
-            'Status': original_data.get('Status', 0)
-        }
-        
-        schedule_data = Todo_def.dict_end_edit(schedule_data, original_data)
-        
-        new_save_format = { updated_data['Start']: updated_data }
-        schedule_data = Todo_def.dict_add(new_save_format, schedule_data)
-        print(f"항목 {idx}가 'schedule_data' 딕셔너리(저장용)에서 수정되었습니다.")
-
-        all_items_data[idx] = updated_data
-        print(f"항목 {idx}가 'all_items_data' 리스트(UI용)에서 수정되었습니다.")
-
-        page.editing_item_index = None
-        update_ui_display()
-        main_show_list(None)
-
-    save_edit_button.on_click = save_edit_button_click
+    
 
     # 수정 폼 채우기
-    def start_editing_item(item_index):
-        page.editing_item_index = item_index
+    def start_editing_item(item_index_in_day):
+        page.editing_item_index = item_index_in_day # '그날 리스트'의 인덱스
+        filter_date_str = page.filter_date.isoformat()
+
         try:
-            item_data = all_items_data[item_index]
-        except IndexError:
-            print(f"오류: 항목 인덱스 {item_index}를 찾을 수 없습니다.")
+            item_data = schedule_data[filter_date_str][item_index_in_day]
+        except (KeyError, IndexError) as e:
+            print(f"오류: 항목 인덱스 {item_index_in_day}를 schedule_data['{filter_date_str}']에서 찾을 수 없습니다. {e}")
             main_show_list(None)
             return
             
@@ -1044,27 +1103,10 @@ def main(page: ft.Page):
         page.window.height = 365
         pagination_row.visible = True
         edit_selection_list.controls.clear()
+        filter_date_str = page.filter_date.isoformat()
+        items_on_day = schedule_data.get(filter_date_str, [])
         
-        filter_date = page.filter_date
-        filtered_item_tuples = []
-        if filter_date:
-            for idx, item in enumerate(all_items_data):
-                item_start_str = item.get('Start')
-                item_due_str = item.get('Due')
-                if not item_start_str: continue
-                try:
-                    item_start_date = datetime.datetime.strptime(item_start_str, '%Y-%m-%d').date()
-                    if item_due_str:
-                        item_due_date = datetime.datetime.strptime(item_due_str, '%Y-%m-%d').date()
-                        if item_start_date <= filter_date <= item_due_date:
-                            filtered_item_tuples.append((idx, item))
-                    else:
-                        if item_start_date == filter_date:
-                            filtered_item_tuples.append((idx, item))
-                except ValueError:
-                    continue
-        
-        total_items = len(filtered_item_tuples)
+        total_items = len(items_on_day)
         total_pages = (total_items - 1) // ITEMS_PER_PAGE + 1
         if total_items == 0: total_pages = 1
         if page.current_page > total_pages: page.current_page = total_pages
@@ -1072,20 +1114,22 @@ def main(page: ft.Page):
         start_index = (page.current_page - 1) * ITEMS_PER_PAGE
         end_index = start_index + ITEMS_PER_PAGE
         
-        tuples_to_display = filtered_item_tuples[start_index:end_index]
+        tuples_to_display = items_on_day[start_index:end_index]
         pageNum.value = f"{page.current_page}/{total_pages}" 
 
         if not tuples_to_display:
             edit_selection_list.controls.append(ft.Text("수정할 항목이 없습니다.", color="black"))
         else:
-            for i, (actual_idx, item) in enumerate(tuples_to_display):
+            for i, item in enumerate(tuples_to_display):
+                actual_idx_in_day = start_index + i 
+                
                 edit_selection_list.controls.append(
                     ft.Checkbox(
                         label=f" {item.get('Title')}", 
                         value=False,
-                        data=actual_idx,
+                        data=actual_idx_in_day,
                         label_style=ft.TextStyle(color="black", size= 14),
-                        on_change=lambda e, idx=actual_idx: start_editing_item(idx) if e.control.value else None
+                        on_change=lambda e, idx=actual_idx_in_day: start_editing_item(idx) if e.control.value else None 
                     )
                 )
                 edit_selection_list.controls.append(ft.Text(' ', style=ft.TextStyle(size= 10)))
@@ -1098,40 +1142,22 @@ def main(page: ft.Page):
     def update_ui_display():
         try:
             todo_list.controls.clear()
-            
-            filter_date = page.filter_date
-            filtered_item_tuples = []
-            if filter_date:
-                for idx, item in enumerate(all_items_data):
-                    item_start_str = item.get('Start')
-                    item_due_str = item.get('Due')
-                    if not item_start_str: continue
-                    try:
-                        item_start_date = datetime.datetime.strptime(item_start_str, '%Y-%m-%d').date()
-                        if item_due_str:
-                            item_due_date = datetime.datetime.strptime(item_due_str, '%Y-%m-%d').date()
-                            if item_start_date <= filter_date <= item_due_date:
-                                filtered_item_tuples.append((idx, item))
-                        else:
-                            if item_start_date == filter_date:
-                                filtered_item_tuples.append((idx, item))
-                    except ValueError as e:
-                        print(f"날짜 변환 오류 (항목 {idx}): {e}")
-                        continue
-            else:
-                filtered_item_tuples = list(enumerate(all_items_data))
+            filter_date_str = page.filter_date.isoformat()
+            items_on_day = schedule_data.get(filter_date_str, [])
 
-            total_items = len(filtered_item_tuples)
+            total_items = len(items_on_day)
             total_pages = (total_items - 1) // ITEMS_PER_PAGE + 1
             if total_items == 0: total_pages = 1 
             if page.current_page > total_pages: page.current_page = total_pages
             start_index = (page.current_page - 1) * ITEMS_PER_PAGE
             end_index = start_index + ITEMS_PER_PAGE
             
-            tuples_to_display = filtered_item_tuples[start_index:end_index]
+            tuples_to_display = items_on_day[start_index:end_index]
             pageNum.value = f"{page.current_page}/{total_pages}"
 
-            for actual_idx, item in tuples_to_display:
+            for i, item in enumerate(tuples_to_display):
+                actual_idx_in_day = start_index + i
+
                 title_text = item.get('Title', '')
                 start_val = item.get('Start', None)
                 due_val = item.get('Due', None)
@@ -1157,36 +1183,22 @@ def main(page: ft.Page):
                     color="black"
                 )
                 
-                def create_status_handler(item_idx, dic_value, text_control_to_update):
+                # Status 변경 핸들러
+                def create_status_handler(date_key, item_index_in_day, dic_value, text_control_to_update):
                     def on_status_select(e):
                         nonlocal schedule_data
                         try:
-                            all_items_data[item_idx]['Status'] = dic_value
+                            schedule_data[date_key][item_index_in_day]['Status'] = dic_value
                             
-                            item_ref = all_items_data[item_idx]
-                            id_title = item_ref['Title']
-                            id_start = item_ref['Start']
-                            
-                            s_date = datetime.date.fromisoformat(item_ref['Start'])
-                            d_str = item_ref.get('Due')
-                            d_date = datetime.date.fromisoformat(d_str) if d_str else s_date
-                            
-                            curr = s_date
-                            while curr <= d_date:
-                                key = curr.isoformat()
-                                if key in schedule_data:
-                                    for i_dict in schedule_data[key]:
-                                        if i_dict['Title'] == id_title and i_dict['Start'] == id_start:
-                                            i_dict['Status'] = dic_value
-                                            break 
-                                curr += datetime.timedelta(days=1)
-
-                            print(f"항목 {item_idx}의 상태를 {dic_value}(으)로 변경 (List/Dict 동기화됨)")
+                            print(f"로컬 상태 변경: {date_key}[{item_index_in_day}]의 상태를 {dic_value}(으)로 변경")
                             
                             text_control_to_update.value = status_map.get(dic_value, "▢")
                             page.update()
+                            
+                        except KeyError:
+                            print(f"Status 변경 오류: 잘못된 날짜 키 {date_key}")
                         except IndexError:
-                            print(f"Status 변경 오류: 잘못된 인덱스 {item_idx}")
+                            print(f"Status 변경 오류: 잘못된 인덱스 {item_index_in_day}")
                         except Exception as ex:
                             print(f"Status 변경 중 심각한 오류: {ex}")
                             traceback.print_exc()
@@ -1196,21 +1208,20 @@ def main(page: ft.Page):
                 status_popup = ft.PopupMenuButton(
                     content=status_text_control, 
                     items=[
-                        ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx, 1, status_text_control)),
-                        ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx, 2, status_text_control)),
-                        ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx, 3, status_text_control)),
+                        ft.PopupMenuItem(text="O", on_click=create_status_handler(filter_date_str, actual_idx_in_day, 1, status_text_control)),
+                        ft.PopupMenuItem(text="△", on_click=create_status_handler(filter_date_str, actual_idx_in_day, 2, status_text_control)),
+                        ft.PopupMenuItem(text="X", on_click=create_status_handler(filter_date_str, actual_idx_in_day, 3, status_text_control)),
                     ], 
                     tooltip='complete'
                 )
                 
                 memo_button = ft.IconButton(
-                    content=ft.Image(src='memo.png', width=12, height=12),
+                    content=ft.Image(src=get_asset_path('memo.png'), width=12, height=12),
                     opacity=1.0 if memo_val else 0.0,
                     tooltip="메모 보기",
                     on_click=lambda e, item_ref=item: main_clean(e, item_ref),
                     width=30, height=30
                 )
-
                 title_row = ft.Row(
                     controls=[
                         status_popup,
@@ -1297,24 +1308,10 @@ def main(page: ft.Page):
                 update_ui_display() 
 
     def on_page_right(e):
-        filter_date = page.filter_date
-        filtered_item_count = 0
-        if filter_date:
-            for item in all_items_data:
-                item_start_str = item.get('Start')
-                item_due_str = item.get('Due')
-                if not item_start_str: continue
-                try:
-                    item_start_date = datetime.datetime.strptime(item_start_str, '%Y-%m-%d').date()
-                    if item_due_str:
-                        item_due_date = datetime.datetime.strptime(item_due_str, '%Y-%m-%d').date()
-                        if item_start_date <= filter_date <= item_due_date:
-                            filtered_item_count += 1
-                    else:
-                        if item_start_date == filter_date:
-                            filtered_item_count += 1
-                except ValueError: continue
-        total_items = filtered_item_count 
+        filter_date_str = page.filter_date.isoformat()
+        items_on_day = schedule_data.get(filter_date_str, [])
+        total_items = len(items_on_day)
+
         total_pages = (total_items - 1) // ITEMS_PER_PAGE + 1
         if total_items == 0: total_pages = 1
             
@@ -1323,12 +1320,10 @@ def main(page: ft.Page):
             if main_switch.content == edit_selection_container:
                 show_edit_selection_view(None)
             else:
-                update_ui_display() 
+                update_ui_display()
                 
     pageBtn_L.on_click = on_page_left
     pageBtn_R.on_click = on_page_right
-
-    # --- 페이지 레이아웃 설정 ---
     page.title = 'Py-Scheduler'
     page.window.width = 585
     page.window.height = 365
