@@ -58,10 +58,10 @@ def url_mention(url):#반환값은 딕셔너리 형태로 title, favicon_url, �
             'favicon_url': None,
             'url': url
         }
-# a=url_mention('https://www.notion.com/ko')
-# print("제목: ",a['title'])
-# print("바비콘: ",a['favicon_url'])
-# print("기존 url",a['url'])
+a=url_mention('https://claude.ai/')
+print("제목: ",a['title'])
+print("바비콘: ",a['favicon_url'])
+print("기존 url",a['url'])
 
 def json_open(file:str)->dict:#입력값( 같은 폴더의 json파일 이름 혹은 절대주소인 str) \ (반환값 딕셔너리 자료형 이름:dict)
     with open(file, "r",encoding='utf-8') as f:
@@ -74,7 +74,7 @@ def json_save(file:dict,file_path:str):#매개변수 file은 사용하던 딕셔
         json.dump(file, f, ensure_ascii=False, indent=4)
 # json_save(나는_딕셔너리,'py2.json')
 
-def dict_add(new_save:dict,existing:dict|None=None): #매개변수로 새로운 값({날짜:{타이틀들}})형태 입니다 딕셔너리들 배열로 나열 없어요!!, 기존 값(없어도 됨) 리턴 되는 값을 딕셔너리로 활용하면 돼용
+def dict_one_add(new_save:dict,existing:dict|None=None): #매개변수로 새로운 값({날짜:{타이틀들}})형태 입니다 딕셔너리들 배열로 나열 없어요!!, 기존 값(없어도 됨) 리턴 되는 값을 딕셔너리로 활용하면 돼용
     if existing is None:
         new_dict={}
         for key, value in new_save.items():
@@ -106,7 +106,7 @@ def dict_add(new_save:dict,existing:dict|None=None): #매개변수로 새로운 
 # }
 # print(dict_add(a,d))
 
-def dict_import(new_save:dict,existing:dict|None=None): #이거도 위랑 사용법은 똑같지만 새로운 파일 불러올때 기존 값과 합치거나 기존값 있었나 헷갈릴 수도 있으니까 그냥 넣기
+def dict_import(new_save:dict,existing:dict|None=None): #위에서는 배열처리가 되어있으면 안되지만 이 함수의 매개변수로는 꼭 배열처리가 되어있어야합니다.
     if existing is None:
         return new_save
     else:
@@ -138,3 +138,9 @@ def todo_import(existing:dict):#check를 기본값0 엑스 1 세모 2 동그라�
     existing[day].extend(move)
     existing[day_minus_1]=keep
     return existing[day]
+
+def dict_strat(existing:dict,start:str):
+    key=list(existing.keys())
+    start_day=datetime.datetime.strptime(min(key),"%y-%m-%d")
+    end_day=datetime.datetime.strptime(start,"%y-%m-%d")
+    min_range=(start_day-end_day).days
