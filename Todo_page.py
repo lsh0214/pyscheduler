@@ -1281,7 +1281,7 @@ def main(page: ft.Page):
     pageBtn_R.on_click = on_page_right
 
     # --- 페이지 레이아웃 설정 ---
-    page.title = 'PySchedule'
+    page.title = 'Py-Scheduler'
     page.window.width = 585
     page.window.height = 365
     page.window.resizable = False
