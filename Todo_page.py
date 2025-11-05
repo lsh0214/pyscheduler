@@ -99,7 +99,7 @@ def main(page: ft.Page):
         controls=[
             ft.Container(
                 content=ft.Text(weekdays[i], size=12, weight="bold", color=weekday_colors[i]),
-                width=40, height=25, alignment=ft.alignment.center
+                width=40, height=30, alignment=ft.alignment.center
             ) for i in range(7)
         ],
         spacing=0, alignment=ft.MainAxisAlignment.CENTER
@@ -524,12 +524,18 @@ def main(page: ft.Page):
     back_to_list_from_cal.on_click = main_show_list
 
     # 캘린더 UI 생성 함수 (이벤트 점 포함)
+    # 캘린더 UI 생성 함수 (이벤트 점 포함)
     def build_calendar_ui():
         calendar.setfirstweekday(calendar.SUNDAY)
         year = page.calendar_view_date.year
         month = page.calendar_view_date.month
         calendar_header_text.value = f"{year}년 {month}월"
         calendar_days_container.controls.clear()
+        
+        # --- 👇 [핵심 수정] ---
+        today = datetime.date.today()
+        selected_date = page.filter_date # '오늘'이 아닌 '선택된 날짜'
+        # --- [수정 끝] ---
         
         events_on_day = {}
         for item in all_items_data:
@@ -562,14 +568,40 @@ def main(page: ft.Page):
                 if day == 0:
                     week_row_controls.append(ft.Container(width=40, height=38))
                 else:
-                    is_today = (day == datetime.date.today().day and month == datetime.date.today().month and year == datetime.date.today().year)
-                    text_color = "white" if is_today else ("red" if day_idx == 0 else ("blue" if day_idx == 6 else "black"))
+                    # --- 👇 [핵심 수정] ---
+                    current_day_date = datetime.date(year, month, day) # [신규]
+                    is_today = (current_day_date == today) # [수정]
+                    is_selected = (current_day_date == selected_date) # [신규]
                     
+                    # 1. 기본 텍스트 색상 (요일별)
+                    text_color = "red" if day_idx == 0 else ("blue" if day_idx == 6 else "black")
+                    
+                    # 2. 기본 배경/테두리/굵기
+                    bgcolor = "transparent" # 기본 배경 투명
+                    border = None
+                    text_weight = "normal"
+                    
+                    # 3. '오늘' 날짜 스타일 (선택되지 않았을 때)
+                    if is_today and not is_selected:
+                        bgcolor = "transparent"
+                        border = ft.border.all(1, "#3E91E4") # 파란 테두리
+                        text_color = "#3E91E4"
+                        text_weight = "bold"
+                    
+                    # 4. '선택된' 날짜 스타일 (오늘이든 아니든 덮어씀)
+                    if is_selected:
+                        bgcolor = "#1976D2" # 파란 배경
+                        border = None
+                        text_color = "white" # 흰색 텍스트
+                        text_weight = "bold"
+
                     day_content = ft.Container(
-                        content=ft.Text(value=str(day), size=12, weight="bold" if is_today else "normal", color=text_color),
+                        content=ft.Text(value=str(day), size=12, weight=text_weight, color=text_color),
                         alignment=ft.alignment.center, width=30, height=30,
-                        bgcolor="#1976D2" if is_today else None, border_radius=15,
+                        bgcolor=bgcolor, border=border, border_radius=15,
                     )
+                    # --- [수정 끝] ---
+                    
                     has_event = events_on_day.get(day, False)
                     event_dot = ft.Container(
                         width=5, height=5, bgcolor="red" if has_event else "transparent",
@@ -611,7 +643,7 @@ def main(page: ft.Page):
 
     # 캘린더 뷰 표시
     def show_calendar_view(e):
-        page.window.height = 380
+        page.window.height = 385 #-----------------------------------------------------캘린더 높이 최적화
         page.calendar_view_date = page.filter_date.replace(day=1)
         build_calendar_ui() 
         main_switch.content = calendar_view_container
