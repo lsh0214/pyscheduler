@@ -92,7 +92,7 @@ def main(page: ft.Page):
     )
     
     # --- 3. 달력 뷰 (Calendar View) ---
-    calendar_header_text = ft.Text(value="", size=18, weight="bold", color="black")
+    calendar_header_text = ft.Text(value="", size=15, weight=ft.FontWeight.BOLD, color="black")
     weekdays = ["일", "월", "화", "수", "목", "금", "토"]
     weekday_colors = ["red", "black", "black", "black", "black", "black", "blue"]
     calendar_weekday_row = ft.Row(
@@ -114,28 +114,24 @@ def main(page: ft.Page):
                 ft.Row(
                     controls=[
                         ft.IconButton(
-                            content=ft.Icon(name="ARROW_BACK_IOS", size=20),
+                            content=ft.Image(src='Left.png',width=15, height=15),
                             on_click=lambda e: change_month(e, -1)
                         ),
                         ft.Container(
                             content=calendar_header_text, 
-                            alignment=ft.alignment.center, 
-                            expand=True
+                            alignment=ft.alignment.center
                         ),
                         ft.IconButton(
-                            content=ft.Icon(name="ARROW_FORWARD_IOS", size=20),
+                            content=ft.Image(src='Right.png', width=15, height=15),
                             on_click=lambda e: change_month(e, 1)
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.CENTER, spacing=10
                 ),
-                ft.Container(height=10),
                 calendar_weekday_row,
-                ft.Container(height=5),
-                calendar_days_container,
-                ft.Row(controls=[ft.Container(expand=True), back_to_list_from_cal])
+                calendar_days_container
             ],
-            expand=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER
+            expand=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         padding=ft.padding.symmetric(vertical=10, horizontal=20), 
         expand=True, 
@@ -513,9 +509,11 @@ def main(page: ft.Page):
     # === 뷰 전환 및 핸들러 함수 ===
     
     def main_show_list(e):
+        page.window.height = 365
         main_switch.content = list_view_container
         page.editing_item_index = None
         main_switch.update()
+        page.update()
     
     # '일정 추가' 뷰 표시 함수
     def show_add_form_view(e):
@@ -613,10 +611,12 @@ def main(page: ft.Page):
 
     # 캘린더 뷰 표시
     def show_calendar_view(e):
+        page.window.height = 380
         page.calendar_view_date = page.filter_date.replace(day=1)
         build_calendar_ui() 
         main_switch.content = calendar_view_container
         main_switch.update()
+        page.update()
 
     # 메모 뷰 기간 계산
     def calculate_duration(start_date_str, due_date_str):
