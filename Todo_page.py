@@ -256,17 +256,106 @@ def main(page: ft.Page):
         padding=ft.padding.all(20),
         expand=True
     )
-    
+
+    ### 파일 선택창
+    def add_file_start_Day(e):
+        selected_date = e.control.value
+        print(f"선택된 날짜: {selected_date.strftime('%Y-%m-%d')}")
+        add_start_button.data = selected_date
+        add_start_button.text = selected_date.strftime('%Y-%m-%d')
+        page.update()
+        
+    def add_file_start_dismissal(e):
+        print("DatePicker가 닫혔습니다.")
+        file_start_button.value = False
+        page.update()
+
     # --- 6. 일정 추가 폼 뷰 (Add Form View) ---
+    add_file_start_picker = ft.DatePicker(
+        on_change=add_file_start_Day,
+        first_date=datetime.date.today(),
+        on_dismiss=add_file_start_dismissal
+    )
+    # 👇 [수정 1] 이 DatePicker도 오버레이에 추가해야 합니다!
+    page.overlay.append(add_file_start_picker)
+
+    # 👇 [수정 2] DatePicker를 열어줄 이벤트 핸들러 함수를 새로 만듭니다.
+    def open_add_file_start_picker(e):
+        if e.control.value: # 체크박스가 True가 될 때
+            # DatePicker를 엽니다.
+            page.open(add_file_start_picker)
+        else: # 체크박스가 False가 될 때
+            e.control.data = None
+            page.update()
+    
+    file_path_text = ft.Text(value="", size=14, color="black", weight=ft.FontWeight.BOLD)
+    file_start_button = ft.Checkbox(label='시작일 설정', on_change=open_add_file_start_picker, data=None, label_style=ft.TextStyle(color="black"))
+    
+    def file_start_save(e):
+        print(f"파일 시작일 저장됨: {file_start_button.data}")
+        main_show_list(None)
+    
+    def file_start_cancel(e): #-------------------------------------------------------------여기에 이제 원하는 파일의 작업을 진행하면 됩니당!
+        """파일 시작일 취소 버튼 - Add 창으로 복귀"""
+        file_start_button.data = None
+        show_add_form_view(None)
+    
+    file_save_button = ft.TextButton('저장', on_click=file_start_save)
+    file_cancel_button = ft.TextButton(
+        '취소',
+        on_click=file_start_cancel,
+        style=ft.ButtonStyle(color="black")
+    )
+    
+    file_start_container = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("파일 시작일 설정", size=20, weight=ft.FontWeight.BOLD, color="black"),
+                ft.Container(height=20),
+                file_path_text,
+                ft.Container(height=5),
+                file_start_button,
+                ft.Container(expand=True),
+                ft.Row(
+                    controls=[ft.Container(expand=True), file_cancel_button, file_save_button],
+                    alignment=ft.MainAxisAlignment.END
+                )
+            ],
+            expand=True,
+            horizontal_alignment=ft.CrossAxisAlignment.START
+        ),
+        padding=ft.padding.all(20),
+        expand=True
+    )
 
     def on_dialog_result(e: FilePickerResultEvent):
+        """파일 선택 결과 처리"""
         if e.files:
-            # e.files는 선택된 파일(FilePickerFile 객체)의 리스트입니다.
             selected_file_path = e.files[0].path
             print(f"선택한 파일 경로: {selected_file_path}")
+            
+            # 파일 경로를 표시하고 파일 시작일 설정 뷰로 전환
+            file_path_text.value = f"선택된 파일: {selected_file_path}"
+            file_start_button.data = None  # 시작일 초기화
+            
+            pagination_row.visible = False
+            main_switch.content = file_start_container
+            main_switch.update()
+            page.update()
         else:
             print("파일 선택이 취소되었습니다.")
         page.update()
+
+    
+
+    # def on_dialog_result(e: FilePickerResultEvent):
+    #     if e.files:
+    #         # e.files는 선택된 파일(FilePickerFile 객체)의 리스트입니다.
+    #         selected_file_path = e.files[0].path
+    #         print(f"선택한 파일 경로: {selected_file_path}")
+    #     else:
+    #         print("파일 선택이 취소되었습니다.")
+    #     page.update()
 
     def add_start_select_Day(e):
         selected_date = e.control.value
@@ -706,7 +795,7 @@ def main(page: ft.Page):
 
     # 캘린더 뷰 표시
     def show_calendar_view(e):
-        page.window.height = 385 #-----------------------------------------------------캘린더 높이 최적화
+        page.window.height = 385
         pagination_row.visible = False
         page.calendar_view_date = page.filter_date.replace(day=1)
         build_calendar_ui() 
@@ -960,14 +1049,41 @@ def main(page: ft.Page):
                 status_map = { 0: "▢", 1: "O", 2: "△", 3: "X" }
                 status_display = status_map.get(status, "▢") # 0,1,2,3이 아니면 "▢"
 
+                status_text_control = ft.Text(
+                        value=status_display, 
+                        size=16, 
+                        weight="w500", 
+                        color="black"
+                    )
+                def create_status_handler(item_idx, dic_value, text_control_to_update):
+                        def on_status_select(e):
+                            # 1. (데이터) 원본 데이터 갱신
+                            all_items_data[item_idx]['Status'] = dic_value
+                            print(f"항목 {item_idx}의 상태를 {dic_value}(으)로 변경")
+                            
+                            # 2. (UI) 이 버튼의 텍스트만 콕 집어 갱신
+                            text_control_to_update.value = status_map.get(dic_value, "▢")
+                            
+                            # 3. (중요) page.update()를 호출하여 UI에 즉시 반영
+                            #    (전체 update_ui_display()를 호출하는 것보다 100배 빠름)
+                            page.update()
+                            
+                            # ❌ update_ui_display() # <--- [제거] 이 비효율적인 전체 새로고침을 제거합니다!
+                        return on_status_select
+
                 status_popup = ft.PopupMenuButton(
-                    content=ft.Text(value=status_display, size=16, weight="w500", color="black"),
-                    items=[
-                        ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx, 1)),
-                        ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx, 2)),
-                        ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx, 3)),
-                    ], tooltip='complete'
-                )
+                        # --- 👇 [수정 3] 
+                        # content에 미리 정의한 Text 컨트롤을 연결합니다.
+                        content=status_text_control, 
+                        items=[
+                            # --- 👇 [수정 4] 
+                            # 핸들러에 위에서 만든 status_text_control을 전달합니다.
+                            ft.PopupMenuItem(text="O", on_click=create_status_handler(actual_idx, 1, status_text_control)),
+                            ft.PopupMenuItem(text="△", on_click=create_status_handler(actual_idx, 2, status_text_control)),
+                            ft.PopupMenuItem(text="X", on_click=create_status_handler(actual_idx, 3, status_text_control)),
+                        ], 
+                        tooltip='complete'
+                    )
                 
                 memo_button = ft.IconButton(
                     content=ft.Image(src='memo.png', width=12, height=12),
