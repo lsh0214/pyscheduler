@@ -651,28 +651,57 @@ def main(page: ft.Page):
         page.update()
 
     # 메모 뷰 기간 계산
-    def calculate_duration(start_date_str, due_date_str):
-        if not start_date_str or not due_date_str: return "" 
+    # [수정] 메모 뷰 기간 계산 (D-Day 계산 로직으로 변경)
+    def calculate_duration(reference_date, due_date_str):
+        """
+        기준 날짜(reference_date)로부터 마감일(due_date_str)까지의 D-Day를 계산합니다.
+        """
+        
+        # 마감일이 없으면 D-Day를 표시하지 않음
+        if not due_date_str:
+            return "" 
+
         try:
-            start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            # --- 👇 [핵심 수정 1] ---
+            # 기준 날짜 (page.filter_date 객체)
+            start_date = reference_date # (이 인수는 이미 date 객체임)
+            # 마감일 (문자열)
             due_date = datetime.datetime.strptime(due_date_str, '%Y-%m-%d').date()
-            delta = (due_date-start_date).days
-            if delta == 0: return "(D-Day)" 
-            elif delta > 0: return f"(D-{delta}일)"
-            else: return f"(D+{-delta}일)"
-        except ValueError: return "" 
+            # --- [수정 끝] ---
+            
+            # (마감일 - 기준일)
+            delta = (due_date - start_date).days
+            
+            if delta < 0:
+                return f"(D+{-delta}일)"
+            elif delta == 0:
+                return "(D-Day)"
+            else:
+                return f"(D-{delta}일)"
+        except ValueError:
+            return "" # 날짜 형식 오류
+        except TypeError: # [추가] 혹시 모를 타입 오류 방지
+            print(f"calculate_duration 타입 오류: {reference_date}, {due_date_str}")
+            return ""
 
     # 메모 뷰 표시
     def main_clean(e, item_data):
         memo_text = item_data.get('Memo')
         title_text = item_data.get('Title')
-        start_val = item_data.get('Start')
+        start_val = item_data.get('Start') # (D-Day 계산에 사용 안 함)
         due_val = item_data.get('Due')
+        
         memo_view_title.value = title_text
-        memo_view_duration.value = calculate_duration(start_val, due_val)
+        
+        # --- 👇 [핵심 수정 2] ---
+        # calculate_duration의 첫 번째 인수로 'page.filter_date' (기준일) 전달
+        # 두 번째 인수로 'due_val' (마감일 문자열) 전달
+        memo_view_duration.value = calculate_duration(page.filter_date, due_val)
+        # --- [수정 끝] ---
+        
         memo_display_text.value = memo_text if memo_text else "저장된 메모가 없습니다."
         main_switch.content = memo_view_container
-        main_switch.update() 
+        main_switch.update()
 
     # 수정 저장 버튼 핸들러
     def save_edit_button_click(e):
@@ -882,11 +911,17 @@ def main(page: ft.Page):
                         ft.Container(expand=True), memo_button
                     ], vertical_alignment="center", spacing=5
                 )
+                # --- 👇 [핵심 수정 2] ---
+                # D-Day 계산을 (page.filter_date -> due_val)로 변
+                dday_text = calculate_duration(page.filter_date, due_val)
+
                 due_text_control = ft.Text(
-                    value=f"Due: {due_val} {calculate_duration(start_val, due_val)}" if due_val else " ", 
-                    size=11, color="black", # 'grey_700'에서 'black'으로 (다크모드)
+                    # [수정] Due: (마감일) (D-n) 형태로 표시
+                    value=f"Due: {due_val} {dday_text}" if due_val else " ", 
+                    size=11, color="black", 
                     opacity=1.0 if due_val else 0.0 
                 )
+                # --- [수정 끝] ---
                 
                 # --- 링크/파비콘 처리 (opacity + height) ---
                 link_controls_list = []
