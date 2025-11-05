@@ -2,6 +2,7 @@ import flet as ft
 import datetime
 import Todo_def  # 사용자 정의 모듈
 import calendar
+from flet import ButtonStyle, RoundedRectangleBorder, FilePickerResultEvent, TextStyle, padding
 from dateutil.relativedelta import relativedelta
 
 def main(page: ft.Page):
@@ -258,6 +259,15 @@ def main(page: ft.Page):
     
     # --- 6. 일정 추가 폼 뷰 (Add Form View) ---
 
+    def on_dialog_result(e: FilePickerResultEvent):
+        if e.files:
+            # e.files는 선택된 파일(FilePickerFile 객체)의 리스트입니다.
+            selected_file_path = e.files[0].path
+            print(f"선택한 파일 경로: {selected_file_path}")
+        else:
+            print("파일 선택이 취소되었습니다.")
+        page.update()
+
     def add_start_select_Day(e):
         selected_date = e.control.value
         print(f"선택된 날짜: {selected_date.strftime('%Y-%m-%d')}")
@@ -337,6 +347,7 @@ def main(page: ft.Page):
         add_todo_field.value = ""
         add_start_button.text = "시작일 설정"
         add_start_button.data = None
+        add_file_button.data = None
         add_due_checkbox.value = False
         add_due_checkbox.data = None
         add_memo_checkbox.value = False
@@ -439,7 +450,7 @@ def main(page: ft.Page):
             'Link': add_link_field.value if add_link_checkbox.value else None,
             'Due': dueVal,
             'NextDay': add_nextDay_checkbox.value,
-            'Status': None
+            'Status': 0
         }
         print("--- 저장 시작 ---")
         print(check_save_data)
@@ -460,6 +471,34 @@ def main(page: ft.Page):
         update_ui_display() # 목록 뷰 갱신
         main_show_list(None) # 목록 뷰로 전환 (page.update() 포함됨)
 
+    #파일 선택 정의
+    file_picker = ft.FilePicker(on_result=on_dialog_result)
+    page.overlay.append(file_picker)
+    add_file_button = ft.Container(
+        # 2. Container의 content에 Row를 넣어 아이콘과 텍스트를 나란히 배치
+        content=ft.Row(
+            controls=[
+                # 3. 아이콘 크기 (size=14)
+                ft.Icon(name="upload_file", size=14, color="#3E6D91"), 
+                # 4. 텍스트 크기 (size=10)
+                ft.Text("파일 선택", size=12, color="#3E6D91") 
+            ],
+            # (선택) 내용물을 중앙 정렬s
+            vertical_alignment=ft.CrossAxisAlignment.CENTER
+        ),
+        
+        # 5. (요청사항) 테두리, 사각 모양, 여백
+        border=ft.border.all(1, "#E0E0E0"),
+        border_radius=0,
+        padding=padding.symmetric(horizontal=8, vertical=4), # 버튼 크기 조절
+        
+        # 6. (핵심) Container를 버튼처럼 작동하게 함
+        on_click=lambda _: file_picker.pick_files(
+            allow_multiple=False,
+            allowed_extensions=["json"]
+        ),
+        tooltip="JSON 파일 선택"
+    )
     # (추가) UI 컨트롤 정의
     add_title = ft.Text(value='일정 추가', size=20, weight=ft.FontWeight.BOLD, color="black")
     add_todo_field = ft.TextField(label="Title", width=250)
@@ -481,7 +520,7 @@ def main(page: ft.Page):
     add_form_container = ft.Container(
         content=ft.Column(
             controls=[
-                add_title, add_todo_field, add_start_button, add_due_checkbox,
+                ft.Row(controls=[add_title, add_file_button], spacing=70), add_todo_field, add_start_button, add_due_checkbox,
                 add_memo_checkbox, add_memo_field,
                 add_link_checkbox, add_link_field, add_nextDay_checkbox,
                 ft.Row(
@@ -906,17 +945,21 @@ def main(page: ft.Page):
                 due_val = item.get('Due', None)
                 memo_val = item.get('Memo')
                 link_val = item.get('Link')
-                status = item.get('Status', None)
+                status = item.get('Status', 0)
                 
                 pre_link = Todo_def.url_mention(link_val)
 
                 def create_status_handler(item_idx, dic_value):
                     def on_status_select(e):
-                        all_items_data[item_idx]['Status'] = e.control.text
+                        # (dic_value는 1, 2, 3 또는 0이 될 수 있음)
+                        all_items_data[item_idx]['Status'] = dic_value
+                        print(f"항목 {item_idx}의 상태를 {dic_value}(으)로 변경")
                         update_ui_display()
                     return on_status_select
 
-                status_display = status if status else "▢"
+                status_map = { 0: "▢", 1: "O", 2: "△", 3: "X" }
+                status_display = status_map.get(status, "▢") # 0,1,2,3이 아니면 "▢"
+
                 status_popup = ft.PopupMenuButton(
                     content=ft.Text(value=status_display, size=16, weight="w500", color="black"),
                     items=[
