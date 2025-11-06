@@ -25,7 +25,9 @@ print(f"로그: 로그 파일 경로는 {LOG_FILE_PATH} 입니다.")
 
 
 def get_asset_path(file_name: str) -> str:
-    return file_name
+    if os.path.exists(os.path.join("assets", file_name)):
+        return os.path.join("assets", file_name)
+    return file_name 
 
 
 def main(page: ft.Page):
@@ -1306,6 +1308,7 @@ def main(page: ft.Page):
     pageBtn_R.on_click = on_page_right
 
     page.title = 'Py-Scheduler'
+    page.window.icon = get_asset_path('py.ico')
     page.window.width = 585
     page.window.height = 365
     page.window.resizable = False
@@ -1352,4 +1355,7 @@ def main(page: ft.Page):
     update_ui_display()
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.app(
+        target=main,
+        assets_dir="assets"
+    )
