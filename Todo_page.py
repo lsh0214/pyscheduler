@@ -3,7 +3,7 @@ import datetime
 import Todo_def  # 사용자 정의 모듈
 import calendar
 from flet import FilePickerResultEvent, padding
-from dateutil import relativedelta
+from dateutil.relativedelta import relativedelta
 import traceback
 import os
 import copy
@@ -992,8 +992,18 @@ def main(page: ft.Page):
 
     def change_month(e, delta):
         current_date = page.calendar_view_date
-        new_date = current_date + relativedelta(months=delta)
-        page.calendar_view_date = new_date.replace(day=1)
+        year = current_date.year
+        month = current_date.month + delta
+        
+        # 월 범위 조정
+        while month > 12:
+            month -= 12
+            year += 1
+        while month < 1:
+            month += 12
+            year -= 1
+        
+        page.calendar_view_date = datetime.date(year, month, 1)
         build_calendar_ui()
         page.update()
 
